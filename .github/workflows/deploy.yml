@@ -17,8 +17,8 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ADMIN_TOKEN: ${{ secrets.ZJMF_ADMIN_TOKEN || secrets.UPTIMER_ADMIN_TOKEN }}
-      WORKER_NAME: ${{ github.event.repository.name }}
-      D1_DATABASE_NAME: ${{ github.event.repository.name }}-d1
+      WORKER_NAME: ${{ vars.WORKER_NAME || 'zjmf-monitor' }}
+      D1_DATABASE_NAME: ${{ vars.D1_DATABASE_NAME || 'zjmf-monitor' }}
       ZJMF_API_ACCOUNT: ${{ secrets.ZJMF_API_ACCOUNT }}
       ZJMF_API_PASSWORD: ${{ secrets.ZJMF_API_PASSWORD }}
       ZJMF_SERVER_ID: ${{ secrets.ZJMF_SERVER_ID }}
