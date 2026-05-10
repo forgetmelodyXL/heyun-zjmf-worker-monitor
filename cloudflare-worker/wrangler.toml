@@ -1,0 +1,14 @@
+name = "zjmf-monitor"
+main = "src/index.js"
+compatibility_date = "2026-05-10"
+
+[secrets]
+required = ["ADMIN_TOKEN"]
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "zjmf-monitor"
+database_id = "bbaa103e-dddb-4113-a521-2dc8b951f7f6"

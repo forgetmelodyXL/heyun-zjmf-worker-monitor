@@ -1,0 +1,13 @@
+{
+  "name": "zjmf-monitor-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "dev": "npx wrangler@latest dev",
+    "deploy": "npx wrangler@latest deploy",
+    "d1:migrate:local": "npx wrangler@latest d1 migrations apply zjmf-monitor --local",
+    "d1:migrate:remote": "npx wrangler@latest d1 migrations apply zjmf-monitor --remote"
+  }
+}
