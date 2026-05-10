@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   recover_check_interval: 60,
   api_timeout: 60,
   default_daily_reboot_limit: 3,
+  webhook_name: 'pushplus',
   webhook_url: '',
   webhook_type: 'custom',
   webhook_timeout: 10000,

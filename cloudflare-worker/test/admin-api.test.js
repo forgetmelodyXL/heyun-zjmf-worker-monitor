@@ -160,6 +160,7 @@ test('管理概览返回配置并仅隐藏 pushplus token 和服务器 IP', asyn
 
   assert.equal(res.status, 200);
   assert.equal(data.settings.pushplus_token, '已配置');
+  assert.equal(data.settings.webhook_name, 'pushplus');
   assert.equal(data.providers[0].api_password, 'provider-secret');
   assert.doesNotMatch(text, /pushplus-secret|203\.0\.113\.10/);
 });

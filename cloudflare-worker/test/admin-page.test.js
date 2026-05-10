@@ -21,6 +21,8 @@ test('管理后台页面使用 ZJMF_ADMIN_TOKEN 登录且不嵌入真实密码',
   assert.match(html, /编辑通知渠道/);
   assert.match(html, /id="notifyRows"/);
   assert.match(html, /id="notifyModal"/);
+  assert.match(html, /name="webhook_name"/);
+  assert.doesNotMatch(html, /<input value="pushplus" disabled>/);
   assert.match(html, /在状态页显示/);
   assert.match(html, /魔方财务 API/);
   assert.match(html, /webhook_headers/);

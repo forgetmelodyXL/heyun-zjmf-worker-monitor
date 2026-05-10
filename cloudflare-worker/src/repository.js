@@ -26,6 +26,7 @@ export class D1Repository {
       recover_check_interval: numberSetting(raw.recover_check_interval, DEFAULT_SETTINGS.recover_check_interval),
       api_timeout: numberSetting(raw.api_timeout, DEFAULT_SETTINGS.api_timeout),
       default_daily_reboot_limit: numberSetting(raw.default_daily_reboot_limit, DEFAULT_SETTINGS.default_daily_reboot_limit),
+      webhook_name: raw.webhook_name || DEFAULT_SETTINGS.webhook_name,
       webhook_url: raw.webhook_url || '',
       webhook_type: raw.webhook_type || 'custom',
       webhook_timeout: numberSetting(raw.webhook_timeout, DEFAULT_SETTINGS.webhook_timeout),
