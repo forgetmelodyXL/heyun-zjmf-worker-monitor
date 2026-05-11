@@ -49,7 +49,7 @@ await post('/api/admin/servers', {
   check_method: 'api_only',
   enabled: true,
   daily_reboot_limit: Number(
-    process.env.ZJMF_HOURLY_REBOOT_LIMIT || process.env.ZJMF_DAILY_REBOOT_LIMIT || 3,
+    process.env.ZJMF_24H_REBOOT_LIMIT || process.env.ZJMF_DAILY_REBOOT_LIMIT || 3,
   ),
 });
 

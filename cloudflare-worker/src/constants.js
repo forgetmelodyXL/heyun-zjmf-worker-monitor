@@ -8,7 +8,7 @@ export const STATES = Object.freeze({
 
 export const DEFAULT_SETTINGS = Object.freeze({
   check_interval: 300,
-  suspect_threshold: 2,
+  suspect_threshold: 3,
   reboot_cooldown: 600,
   recover_timeout: 300,
   recover_check_interval: 60,

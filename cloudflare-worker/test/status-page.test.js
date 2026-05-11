@@ -14,16 +14,21 @@ test('状态页渲染服务器状态并转义 HTML', () => {
       last_check_time: 1778384953,
       last_reboot_time: 0,
       reboot_count_today: 0,
+      check_method: 'tcp',
     },
   ]);
 
   assert.match(html, /ZJMF 服务器监控/);
-  assert.match(html, /--bg:#f8f4ea/);
+  assert.match(html, /--bg:#0b1020/);
+  assert.match(html, /status-card/);
+  assert.match(html, /近 30 天可用性/);
+  assert.match(html, /最近 60 次探测/);
+  assert.match(html, /tcp/);
   assert.match(html, /管理面板/);
   assert.match(html, /href="\/admin"/);
   assert.match(html, /运行正常/);
-  assert.match(html, /本小时重启/);
-  assert.doesNotMatch(html, /今日重启/);
+  assert.match(html, /24 小时重启/);
+  assert.doesNotMatch(html, /本小时重启|今日重启/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>alert/);
 });

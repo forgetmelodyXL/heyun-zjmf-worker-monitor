@@ -1,5 +1,6 @@
 import { TRANSITION_LABELS } from './constants.js';
 import { Notifier } from './notifier.js';
+import { checkHttpHealth, checkTcpHealth } from './probe.js';
 import { createRuntime, advanceState, shouldReboot, applyRebootStart, applyRebootSuccess } from './state-machine.js';
 import { localDateParts } from './time.js';
 import { ZjmfClient } from './zjmf-client.js';
@@ -24,18 +25,38 @@ async function recordTransition(repo, notifier, server, oldState, nextRuntime, n
 }
 
 async function checkApiHealth(client, server, runtime, now) {
+  const started = Date.now();
   const status = await client.getStatus(server.id, now);
-  const last_status_value = status == null ? `ERROR: ${client.lastError || 'N/A'}` : String(status);
-  if (status == null) return { health: null, runtime: { ...runtime, last_status_value } };
-  return { health: String(status).toLowerCase() === 'on', runtime: { ...runtime, last_status_value } };
+  const statusValue = status == null ? `ERROR: ${client.lastError || 'N/A'}` : String(status);
+  return {
+    ok: status != null && String(status).toLowerCase() === 'on',
+    statusValue,
+    error: status == null ? client.lastError || 'API 状态获取失败' : '',
+    latencyMs: Date.now() - started,
+  };
 }
 
 function rebootWindowKey(date, timezone) {
   const parts = localDateParts(date, timezone);
-  return `${parts.dateKey}T${String(parts.hour).padStart(2, '0')}`;
+  return parts.dateKey;
 }
 
-export async function runMonitorOnce({ repo, fetcher = (input, init) => globalThis.fetch(input, init), now, date = new Date(now * 1000) }) {
+async function probeServer({ client, server, fetcher, tcpConnector, now }) {
+  const method = server.check_method || 'api_only';
+  if (method === 'http') return await checkHttpHealth({ server, fetcher });
+  if (method === 'tcp') return await checkTcpHealth({ server, connector: tcpConnector });
+  if (method === 'http_then_api') {
+    const http = await checkHttpHealth({ server, fetcher });
+    return http.ok ? http : await checkApiHealth(client, server, {}, now);
+  }
+  if (method === 'tcp_then_api') {
+    const tcp = await checkTcpHealth({ server, connector: tcpConnector });
+    return tcp.ok ? tcp : await checkApiHealth(client, server, {}, now);
+  }
+  return await checkApiHealth(client, server, {}, now);
+}
+
+export async function runMonitorOnce({ repo, fetcher = (input, init) => globalThis.fetch(input, init), tcpConnector, now, date = new Date(now * 1000), force = false }) {
   const settings = await repo.getSettings();
   const notifier = new Notifier(settings, fetcher);
   const rebootWindow = rebootWindowKey(date, settings.timezone || 'Asia/Shanghai');
@@ -47,8 +68,13 @@ export async function runMonitorOnce({ repo, fetcher = (input, init) => globalTh
     if (!provider) continue;
     const client = new ZjmfClient(provider, fetcher, settings.api_timeout);
     const loadedRuntime = (await repo.getRuntime(server.id)) || createRuntime({ now });
-    const { health, runtime: withStatus } = await checkApiHealth(client, server, loadedRuntime, now);
-    let nextRuntime = health == null ? { ...withStatus, last_check_time: now } : advanceState(withStatus, health, settings, now);
+    if (!force && loadedRuntime.last_check_time && now - loadedRuntime.last_check_time < settings.check_interval) continue;
+    const probe = await probeServer({ client, server, fetcher, tcpConnector, now });
+    const withStatus = { ...loadedRuntime, last_status_value: probe.statusValue || '', last_check_time: now };
+    let nextRuntime = advanceState(withStatus, probe.ok, settings, now);
+    if (typeof repo.addCheckResult === 'function') {
+      await repo.addCheckResult({ server_id: server.id, ok: probe.ok, latency_ms: probe.latencyMs || 0, status_value: probe.statusValue || '', error: probe.error || '', created_at: now });
+    }
     await recordTransition(repo, notifier, server, loadedRuntime.state, nextRuntime, now);
 
     if (shouldReboot(nextRuntime, server, settings, now, rebootWindow)) {

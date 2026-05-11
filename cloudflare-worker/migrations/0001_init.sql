@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 INSERT OR IGNORE INTO settings (key, value) VALUES
   ('check_interval', '300'),
-  ('suspect_threshold', '2'),
+  ('suspect_threshold', '3'),
   ('reboot_cooldown', '600'),
   ('recover_timeout', '300'),
   ('recover_check_interval', '60'),

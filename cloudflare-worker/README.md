@@ -1,12 +1,13 @@
 # 魔方财务 V3 服务器监控 Worker 版
 
-这是 `server_monitor.py` 的 Cloudflare Worker/D1 版本：用 Cron Trigger 定时检查魔方财务 API 状态，异常达到阈值后调用 `hard_reboot`，并可通过 Webhook 或 pushplus 通知。
+这是 `server_monitor.py` 的 Cloudflare Worker/D1 版本：用 Cron Trigger 定时执行 API / HTTP(S) / TCP 探测，连续失败 3 次后调用 `hard_reboot`，并可通过 Webhook 或 pushplus 通知。
 
 ## 已实现
 
 - Cron 定时检查，默认 `*/5 * * * *`
 - D1 持久化：服务商、服务器、运行状态、事件、设置
 - 5 状态机：`healthy -> suspect -> down -> rebooting -> recovering`
+- 探测方式：魔方财务 API、HTTP(S)、TCP 端口、HTTP/TCP + API 复核
 - 管理后台：`GET /admin`，使用 `ZJMF_ADMIN_TOKEN` 登录
 - 魔方财务 API：
   - `POST /v1/login_api?account=xx&password=xx`
@@ -23,9 +24,9 @@
 
 ## 限制
 
-Cloudflare Worker 不能执行本机 ICMP `ping`，所以当前 Worker 版只支持 `api_only`。原 Python 里的 `ping_only`、`ping_then_api`、`api_then_ping` 不适用于 Worker。
+Cloudflare Worker 不能执行本机 ICMP `ping`，因此 Worker 版不支持 `ping_only`、`ping_then_api`、`api_then_ping`。当前可用 HTTP(S) 请求或 TCP 端口连接替代 ping 做在线检测。
 
-Worker 版已去掉定时重启，只在 API 检测异常达到阈值后触发 `hard_reboot`，并按每小时窗口限制重启次数。
+Worker 版已去掉定时重启，只在连续 3 次探测异常后触发 `hard_reboot`，并按 24 小时窗口限制重启次数。
 
 ## 快速部署（5 步完成）
 
@@ -185,7 +186,7 @@ $body = @{
   provider = "heyunidc"
   check_method = "api_only"
   enabled = $true
-  # 字段名沿用 daily_reboot_limit，实际含义是每小时重启上限。
+  # 字段名沿用 daily_reboot_limit，实际含义是 24 小时重启上限。
   daily_reboot_limit = 3
 } | ConvertTo-Json -Compress
 
@@ -193,6 +194,37 @@ Invoke-RestMethod -Method Post -Uri "$base/api/admin/servers" `
   -Headers @{ Authorization = "Bearer $token" } `
   -ContentType "application/json; charset=utf-8" `
   -Body $body
+```
+
+### HTTP(S) 检测示例
+
+```powershell
+$body = @{
+  id = "web-1"
+  name = "官网"
+  provider = "heyunidc"
+  check_method = "http"
+  http_url = "https://example.com/health"
+  http_method = "GET"
+  http_expected_status = "200-399"
+  daily_reboot_limit = 3
+  enabled = $true
+} | ConvertTo-Json -Compress
+```
+
+### TCP 端口检测示例
+
+```powershell
+$body = @{
+  id = "tcp-443"
+  name = "HTTPS 端口"
+  provider = "heyunidc"
+  check_method = "tcp"
+  tcp_host = "example.com"
+  tcp_port = 443
+  daily_reboot_limit = 3
+  enabled = $true
+} | ConvertTo-Json -Compress
 ```
 
 ### 配置 pushplus 通知

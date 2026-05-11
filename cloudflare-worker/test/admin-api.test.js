@@ -64,8 +64,11 @@ class FakeStatement {
         name: this.args[1],
         ip: this.args[2],
         provider: this.args[3],
+        check_method: this.args[4],
         enabled: this.args[5],
         scheduled_reboot: this.args[7],
+        http_url: this.args[8],
+        tcp_port: this.args[12],
       });
       return {};
     }
@@ -226,6 +229,9 @@ test('管理后台保存服务器时清空旧定时重启配置', async () => {
         name: '主服务器',
         provider: 'heyunidc',
         enabled: true,
+        check_method: 'http',
+        http_url: 'https://example.test/health',
+        tcp_port: 443,
         scheduled_reboot: '04:00',
       }),
     }),
@@ -234,6 +240,9 @@ test('管理后台保存服务器时清空旧定时重启配置', async () => {
 
   assert.equal(res.status, 200);
   assert.equal(testEnv.DB.data.serverWrites[0].scheduled_reboot, '');
+  assert.equal(testEnv.DB.data.serverWrites[0].check_method, 'http');
+  assert.equal(testEnv.DB.data.serverWrites[0].http_url, 'https://example.test/health');
+  assert.equal(testEnv.DB.data.serverWrites[0].tcp_port, 443);
 });
 
 test('管理后台删除监控项会删除配置和运行状态并写入日志', async () => {

@@ -89,7 +89,7 @@ export async function handleRequest(request, env) {
 
   if (url.pathname === '/api/admin/run' && request.method === 'POST') {
     const now = Math.floor(Date.now() / 1000);
-    return json(await runMonitorOnce({ repo, fetcher: (input, init) => fetch(input, init), now }));
+    return json(await runMonitorOnce({ repo, fetcher: (input, init) => fetch(input, init), now, force: true }));
   }
 
   if (url.pathname === '/api/admin/notify/test' && request.method === 'POST') {
@@ -117,6 +117,7 @@ export async function handleRequest(request, env) {
     const nextServer = {
       ...body,
       ip: Object.hasOwn(body, 'ip') ? body.ip : existing?.ip || '',
+      check_method: body.check_method || 'api_only',
       scheduled_reboot: '',
     };
     await repo.upsertServer(nextServer, Math.floor(Date.now() / 1000));

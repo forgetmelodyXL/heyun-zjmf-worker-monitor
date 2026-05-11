@@ -1,6 +1,6 @@
 # ZJMF 服务器监控与自动重启系统
 
-基于 5 状态机架构的云服务器监控，Worker 版支持异常自动重启、每小时重启上限、Webhook/pushplus 通知和管理后台。
+基于 5 状态机架构的云服务器监控，Worker 版支持 API / HTTP(S) / TCP 探测、异常自动重启、24 小时重启上限、Webhook/pushplus 通知和管理后台。
 
 ## Cloudflare Worker 版
 
@@ -15,7 +15,7 @@ cloudflare-worker/
 - 使用 D1 保存服务商、服务器、运行状态和事件
 - 支持魔方财务 API 状态检测与 `hard_reboot`
 - 支持 Webhook / pushplus 通知
-- Worker 环境不能执行 ICMP ping，因此当前仅支持 `api_only`
+- Worker 环境不能执行 ICMP ping，当前支持魔方财务 API、HTTP(S) 和 TCP 端口探测。
 
 部署文档见：
 
@@ -153,7 +153,7 @@ pip install requests
   ],
   "global_settings": {
     "check_interval": 300,
-    "suspect_threshold": 2,
+    "suspect_threshold": 3,
     "reboot_cooldown": 600,
     "recover_timeout": 300,
     "default_daily_reboot_limit": 3,
@@ -202,17 +202,21 @@ python server_monitor.py --interval 60
 | `provider` | 对应provider的name | - |
 | `check_method` | 检测方式 | `api_only` |
 | `enabled` | 是否启用 | `true` |
-| `daily_reboot_limit` | 每小时重启上限（0=不限，字段名沿用旧名称） | 全局默认 |
+| `daily_reboot_limit` | 24 小时重启上限（0=不限，字段名沿用旧名称） | 全局默认 |
+| `http_url` | HTTP(S) 探测地址 | 空 |
+| `http_expected_status` | HTTP 期望状态码，支持 `200-399,401` | `200-399` |
+| `tcp_host` | TCP 探测主机 | 空 |
+| `tcp_port` | TCP 探测端口 | `0` |
 
 ### global_settings
 
 | 字段 | 说明 | 默认值 |
 |------|------|--------|
 | `check_interval` | 检查间隔（秒） | `300` |
-| `suspect_threshold` | 连续异常N次确认宕机 | `2` |
+| `suspect_threshold` | 连续异常 N 次确认宕机 | `3` |
 | `reboot_cooldown` | 重启冷却时间（秒） | `600` |
 | `recover_timeout` | 重启后恢复等待超时（秒） | `300` |
-| `default_daily_reboot_limit` | 默认每小时重启上限（字段名沿用旧名称） | `3` |
+| `default_daily_reboot_limit` | 默认 24 小时重启上限（字段名沿用旧名称） | `3` |
 | `webhook_url` | 通知地址 | 空 |
 | `webhook_type` | 通知类型 | `custom` |
 | `log_level` | 日志级别（仅控制台输出） | `INFO` |
@@ -222,9 +226,10 @@ python server_monitor.py --interval 60
 | 方式 | 说明 | 适用场景 |
 |------|------|----------|
 | `api_only` | 只通过API检测（推荐） | 有API，最准确 |
-| `ping_only` | 只通过ping | 无API |
-| `ping_then_api` | 先ping再API确认 | 需快速筛选 |
-| `api_then_ping` | 先API，失败降级ping | API可能不稳定 |
+| `http` | 通过 HTTP(S) 状态码检测 | 网站/API 健康检查 |
+| `tcp` | 通过 TCP 端口连接检测 | 检查 80/443/数据库等端口 |
+| `http_then_api` | HTTP 失败后再用魔方财务 API 复核 | 降低误判后再重启 |
+| `tcp_then_api` | TCP 失败后再用魔方财务 API 复核 | 端口异常后再复核 |
 
 ### Webhook通知类型
 
@@ -251,7 +256,7 @@ python server_monitor.py --interval 60
 
 1. **疑似阈值**：首次异常进入suspect，连续N次才确认DOWN，避免误判
 2. **重启冷却**：两次重启之间至少间隔 `reboot_cooldown` 秒
-3. **每小时上限**：每台服务器每小时最多重启 `daily_reboot_limit` 次
+3. **24 小时上限**：每台服务器每 24 小时最多重启 `daily_reboot_limit` 次
 4. **恢复超时**：重启后超过 `recover_timeout` 秒未恢复，重新标记DOWN
 5. **JWT自动刷新**：2小时过期，提前10分钟自动重新登录
 
@@ -274,7 +279,7 @@ curl -X PUT -H "Authorization: JWT YOUR_TOKEN" "https://www.heyunidc.cn/v1/hosts
 ## 日志示例
 
 ```
-2026-05-09 22:00:00 [INFO] 配置加载：1 个服务商，0 个服务器，检查间隔 300s，疑似阈值 2次，每小时重启上限 3次
+2026-05-09 22:00:00 [INFO] 配置加载：1 个服务商，0 个服务器，检查间隔 300s，疑似阈值 3次，24 小时重启上限 3次
 2026-05-09 22:00:01 [INFO] [核云] 正在登录...
 2026-05-09 22:00:02 [INFO] [核云] 登录成功
 2026-05-09 22:00:03 [INFO]   [HEALTHY] 我的服务器 (ID:4075) status=on

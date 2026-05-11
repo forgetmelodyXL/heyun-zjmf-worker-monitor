@@ -25,12 +25,15 @@ test('管理后台页面使用 ZJMF_ADMIN_TOKEN 登录且不嵌入真实密码',
   assert.doesNotMatch(html, /<input value="pushplus" disabled>/);
   assert.match(html, /在状态页显示/);
   assert.match(html, /魔方财务 API/);
+  assert.match(html, /HTTP\(S\)/);
+  assert.match(html, /TCP 端口/);
+  assert.match(html, /连续失败 3 次/);
   assert.match(html, /webhook_headers/);
   assert.match(html, /webhook_template/);
   assert.match(html, /name="check_interval"/);
   assert.match(html, /name="api_timeout_ms"/);
-  assert.match(html, /每小时重启上限/);
-  assert.doesNotMatch(html, /每日重启上限/);
+  assert.match(html, /24 小时重启上限/);
+  assert.doesNotMatch(html, /每小时重启上限|每日重启上限/);
   assert.match(html, /api_timeout:Math\.max/);
   assert.match(html, /name="api_password" type="text"/);
   assert.match(html, /id="editModal"/);
