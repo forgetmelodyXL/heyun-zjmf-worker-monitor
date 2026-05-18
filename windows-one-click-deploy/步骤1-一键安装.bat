@@ -9,7 +9,7 @@ set "STEP2_FILE=%SCRIPT_DIR%\步骤2-一键部署.bat"
 set "PS1_FILE=%SCRIPT_DIR%\deploy-one-click.ps1"
 set "EXAMPLE_FILE=%SCRIPT_DIR%\one-click.config.example.jsonc"
 set "CONFIG_FILE=%SCRIPT_DIR%\one-click.config.jsonc"
-set "STEP2_URL=%REMOTE_BASE%/%%E6%%AD%%A5%%E9%%AA%%A42-%%E4%%B8%%80%%E9%%94%%AE%%E9%%83%%A8%%E7%%BD%%B2.bat"
+set "STEP2_URL=%REMOTE_BASE%/步骤2-一键部署.bat"
 set "PS1_URL=%REMOTE_BASE%/deploy-one-click.ps1"
 set "EXAMPLE_URL=%REMOTE_BASE%/one-click.config.example.jsonc"
 
@@ -24,6 +24,8 @@ echo 本脚本会下载部署脚本、配置模板，然后启动步骤2。
 echo.
 
 call :fetch "%STEP2_FILE%" "%STEP2_URL%" "步骤2-一键部署.bat"
+if errorlevel 1 exit /b 1
+call :fix_crlf "%STEP2_FILE%"
 if errorlevel 1 exit /b 1
 call :fetch "%PS1_FILE%" "%PS1_URL%" "deploy-one-click.ps1"
 if errorlevel 1 exit /b 1
@@ -43,4 +45,8 @@ exit /b %ERRORLEVEL%
 if exist "%~1" exit /b 0
 echo 下载: %~3
 "%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%~2' -OutFile '%~1' -UseBasicParsing"
+exit /b %ERRORLEVEL%
+
+:fix_crlf
+"%PS_EXE%" -NoProfile -ExecutionPolicy Bypass -Command "$p='%~1'; $t=Get-Content -LiteralPath $p -Raw -Encoding UTF8; $t=$t -replace '\r?\n', [Environment]::NewLine; [System.IO.File]::WriteAllText($p,$t,[System.Text.UTF8Encoding]::new($false))"
 exit /b %ERRORLEVEL%
