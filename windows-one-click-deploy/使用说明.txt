@@ -2,8 +2,8 @@
 
 最简单方式：只下载一个文件并双击：
 
-[点击下载 步骤1-一键安装.bat](https://github.com/loqwe/heyun-zjmf-worker-monitor/raw/main/windows-one-click-deploy/%E6%AD%A5%E9%AA%A41-%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85.bat)
-如果浏览器直接打开文本，请按 Ctrl+S 另存为 步骤1-一键安装.bat。
+[点击下载步骤1安装脚本 step1-install.bat](https://github.com/loqwe/heyun-zjmf-worker-monitor/releases/download/release-step1-bat-v1/step1-install.bat)
+这是 GitHub Release 附件链接，点击后会直接下载，不会打开成文本。
 
 它会先检查 PowerShell、Node.js、npx；缺少 Node.js/npx 时会尝试通过 winget 自动安装 Node.js LTS，找不到任何 PowerShell 时会尝试通过 winget 安装 PowerShell 7，然后自动下载 步骤2-一键部署.bat、部署脚本和配置模板，并在同目录自动创建：
 
