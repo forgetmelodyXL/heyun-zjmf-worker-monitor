@@ -31,6 +31,15 @@ test('步骤2一键部署默认刷新源码缓存，避免部署旧版本', () =
   assert.match(deployer, /-Interactive -RefreshSource/);
 });
 
+test('一键部署写入配置前等待新版管理接口就绪并隐藏布尔返回值', () => {
+  const script = readUtf8('deploy-one-click.ps1');
+
+  assert.match(script, /function Wait-AdminApiReady/);
+  assert.match(script, /Wait-AdminApiReady \$workerUrl \$adminToken/);
+  assert.match(script, /\$null = Post-Admin \$BaseUrl \$AdminToken "\/api\/admin\/settings"/);
+  assert.doesNotMatch(script, /if \(\$githubRepo\) \{ Post-Admin \$BaseUrl \$AdminToken/);
+});
+
 test('文档里的步骤1下载入口使用 main 分支 raw 直链', () => {
   const rootReadme = readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   const workerReadme = readFileSync(path.join(repoRoot, 'cloudflare-worker', 'README.md'), 'utf8');

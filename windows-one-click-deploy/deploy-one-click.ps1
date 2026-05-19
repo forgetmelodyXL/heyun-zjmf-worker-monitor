@@ -386,6 +386,21 @@ function Post-Admin($BaseUrl, $Token, [string]$Path, $Body) {
         return $false
     }
 }
+function Wait-AdminApiReady($BaseUrl, $Token) {
+    Write-Step "等待管理接口就绪"
+    for ($i = 1; $i -le 18; $i++) {
+        try {
+            Invoke-RestMethod -Method Get -Uri "$BaseUrl/api/admin/overview" -Headers @{ Authorization = "Bearer $Token" } -TimeoutSec 15 | Out-Null
+            Write-Note "管理接口已就绪。"
+            return $true
+        } catch {
+            Write-Note "管理接口尚未就绪，第 $i/18 次：$($_.Exception.Message)"
+            Start-Sleep -Seconds 5
+        }
+    }
+    Write-Host "警告：管理接口暂未就绪，跳过自动写入初始化配置；可稍后重走脚本或到 /admin 手动补齐。" -ForegroundColor Yellow
+    return $false
+}
 function Get-WorkersDevUrl([string]$WorkerName, $Config) {
     $accountId = Get-ConfigValue $Config "cloudflareAccountId" $env:CLOUDFLARE_ACCOUNT_ID
     if ([string]::IsNullOrWhiteSpace($accountId) -or [string]::IsNullOrWhiteSpace($env:CLOUDFLARE_API_TOKEN)) {
@@ -430,7 +445,7 @@ function Seed-MonitorConfig($BaseUrl, $AdminToken, $Config) {
     $apiPassword = Get-ConfigValue $Config "zjmfApiPassword" $env:ZJMF_API_PASSWORD
     $serverId = Get-ConfigValue $Config "serverId" $env:ZJMF_SERVER_ID
     $githubRepo = Get-ConfigValue $Config "upstreamRepo" $script:UpstreamRepo
-    if ($githubRepo) { Post-Admin $BaseUrl $AdminToken "/api/admin/settings" @{ github_repo = $githubRepo; github_branch = Get-ConfigValue $Config "githubBranch" "main"; github_workflow_file = Get-ConfigValue $Config "githubWorkflowFile" "deploy.yml" } }
+    if ($githubRepo) { $null = Post-Admin $BaseUrl $AdminToken "/api/admin/settings" @{ github_repo = $githubRepo; github_branch = Get-ConfigValue $Config "githubBranch" "main"; github_workflow_file = Get-ConfigValue $Config "githubWorkflowFile" "deploy.yml" } }
     if ([string]::IsNullOrWhiteSpace($apiAccount) -or [string]::IsNullOrWhiteSpace($apiPassword) -or [string]::IsNullOrWhiteSpace($serverId)) {
         Write-Note "未填写魔方财务账号/API密钥/serverId，跳过初始化；可部署后进 /admin 手动添加。"
         return
@@ -444,15 +459,15 @@ function Seed-MonitorConfig($BaseUrl, $AdminToken, $Config) {
     if (-not $method) { $method = if ($httpUrl -and $tcpHost) { "service_then_power" } elseif ($httpUrl) { "http_then_api" } elseif ($tcpHost -and $tcpPort -gt 0) { "tcp_then_api" } else { "api_only" } }
     if ($method -eq "service_then_power" -and -not $httpUrl -and -not $tcpHost) { $method = "api_only" }
     Write-Step "初始化监控配置"
-    Post-Admin $BaseUrl $AdminToken "/api/admin/providers" @{
+    $null = Post-Admin $BaseUrl $AdminToken "/api/admin/providers" @{
         name = $provider; display_name = Get-ConfigValue $Config "providerDisplayName" "核云"; api_base_url = Get-ConfigValue $Config "zjmfApiBaseUrl" "https://www.heyunidc.cn/v1"; api_account = $apiAccount; api_password = $apiPassword
     }
-    Post-Admin $BaseUrl $AdminToken "/api/admin/servers" @{
+    $null = Post-Admin $BaseUrl $AdminToken "/api/admin/servers" @{
         id = $serverId; name = Get-ConfigValue $Config "serverName" (if ($serverIp) { $serverIp } else { $serverId }); ip = $serverIp; provider = $provider; check_method = $method; enabled = $true; daily_reboot_limit = Get-ConfigInt $Config "dailyRebootLimit" 3; http_url = $httpUrl; http_method = Get-ConfigValue $Config "httpMethod" "GET"; http_expected_status = Get-ConfigValue $Config "httpExpectedStatus" "200-399"; tcp_host = $tcpHost; tcp_port = $tcpPort
     }
     $pushplus = Get-ConfigValue $Config "pushplusToken" $env:PUSHPLUS_TOKEN
-    if ($pushplus) { Post-Admin $BaseUrl $AdminToken "/api/admin/settings" @{ webhook_url = "https://www.pushplus.plus/send"; webhook_type = "pushplus"; pushplus_token = $pushplus; timezone = Get-ConfigValue $Config "timezone" "Asia/Shanghai" } }
-    Post-Admin $BaseUrl $AdminToken "/api/admin/run" @{}
+    if ($pushplus) { $null = Post-Admin $BaseUrl $AdminToken "/api/admin/settings" @{ webhook_url = "https://www.pushplus.plus/send"; webhook_type = "pushplus"; pushplus_token = $pushplus; timezone = Get-ConfigValue $Config "timezone" "Asia/Shanghai" } }
+    $null = Post-Admin $BaseUrl $AdminToken "/api/admin/run" @{}
 }
 
 trap { Write-Host ""; Write-Host "部署已中断: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
@@ -513,7 +528,11 @@ if (-not $workerUrl) {
     Write-Host "部署命令已完成，但脚本未自动解析到 workers.dev 地址；请以上方 Wrangler 输出为准。" -ForegroundColor Yellow
 }
 
-if (-not $SkipSeed -and $workerUrl) { Start-Sleep -Seconds 10; Seed-MonitorConfig $workerUrl $adminToken $Config }
+if (-not $SkipSeed -and $workerUrl) {
+    if (Wait-AdminApiReady $workerUrl $adminToken) {
+        Seed-MonitorConfig $workerUrl $adminToken $Config
+    }
+}
 
 Write-Host ""
 Write-Host "部署完成。" -ForegroundColor Green
