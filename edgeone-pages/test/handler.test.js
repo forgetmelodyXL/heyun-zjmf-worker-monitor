@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { handleEdgeOneRequest, edgeOneTcpConnector } from '../src/handler.js';
-import { onRequest } from '../cloud-functions/index.js';
+import { onRequest } from '../edge-functions/index.js';
 
 class MemoryKV {
   constructor() {
@@ -74,7 +74,7 @@ test('EdgeOne TCP 连接器不依赖 Node 原生模块', async () => {
   );
 });
 
-test('Cloud Function 入口支持全局 KV 绑定', async () => {
+test('Edge Function 入口支持全局 KV 绑定', async () => {
   const previous = globalThis.ZJMF_KV;
   globalThis.ZJMF_KV = new MemoryKV();
   try {

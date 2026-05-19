@@ -40,7 +40,7 @@
 
 KV 绑定单独设置：进入 KV Storage，绑定 Namespace，变量名填 `ZJMF_KV`，Namespace 选你创建的 `zjmf`。
 
-说明：EdgeOne 版使用 KV 保存配置和事件，定时监控由外部定时器调用 `/api/admin/run`。首次部署后仍需在 EdgeOne 控制台绑定 KV 到变量名 `ZJMF_KV`。
+说明：EdgeOne 版使用 Edge Functions + KV 保存配置和事件，定时监控由外部定时器调用 `/api/admin/run`。首次部署后仍需在 EdgeOne 控制台绑定 KV 到变量名 `ZJMF_KV`。不要改成 `cloud-functions/`，否则 KV 绑定不会注入。
 
 详细说明见 `edgeone-pages/README.md`。
 
