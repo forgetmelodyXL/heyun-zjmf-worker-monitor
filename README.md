@@ -306,3 +306,17 @@ curl -X PUT -H "Authorization: JWT YOUR_TOKEN" "https://www.heyunidc.cn/v1/hosts
 2026-05-09 22:10:05 [INFO] [我的服务器] rebooting → recovering (重启指令已发送)
 2026-05-09 22:15:05 [INFO] [我的服务器] recovering → healthy (恢复成功)
 ```
+
+## 鸣谢
+
+本项目在设计和实现过程中参考并受益于以下项目与平台：
+
+- [Uptimer](https://github.com/VrianCao/Uptimer)：参考其轻量化状态页、监控展示和快速部署思路。
+- [Cloudflare Workers](https://workers.cloudflare.com/)：提供零服务器成本的 Worker、D1 和定时任务运行能力。
+- [EdgeOne Pages](https://console.tencentcloud.com/edgeone/pages)：提供可选的 Pages 部署方案。
+- [PushPlus](https://www.pushplus.plus/) 与 Webhook：提供灵活的异常通知能力。
+- 魔方财务 API：提供服务器状态查询、开机和重启等自动化接口能力。
+
+## 许可证
+
+本项目采用 [MIT License](./LICENSE) 开源。使用本项目时，请同时遵守相关第三方平台和接口服务的使用条款。
