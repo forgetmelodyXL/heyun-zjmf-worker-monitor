@@ -24,7 +24,7 @@
 
 ### 方式二：EdgeOne Pages 复用现有仓库部署
 
-不要使用 **Deploy to EdgeOne** 模板按钮；该按钮会进入“创建 Git 仓库”流程。复用现有仓库请在 EdgeOne Pages 控制台点击 **导入其它仓库**，选择 `loqwe/heyun-zjmf-worker-monitor`。
+打开 [EdgeOne Pages 控制台](https://console.cloud.tencent.com/edgeone/pages)，点击 **导入其它仓库**，选择 `loqwe/heyun-zjmf-worker-monitor`。
 
 填写建议：
 
