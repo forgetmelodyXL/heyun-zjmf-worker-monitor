@@ -101,7 +101,9 @@ test('管理初始化弹窗支持滚动显示完整内容', async () => {
     ZJMF_KV: new MemoryKV(),
   });
   const html = await res.text();
+  const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
 
+  assert.doesNotThrow(() => new Function(script));
   assert.match(html, /#setupWizardModal,#notifyModal,#editModal\{align-items:start;overflow:auto\}/);
   assert.match(html, /#setupWizardModal \.setup-modal\{width:min\(1180px,calc\(100vw - 48px\)\);scrollbar-gutter:stable\}/);
   assert.match(html, /name="visible_on_status" type="hidden" value="false"/);
@@ -113,6 +115,15 @@ test('管理初始化弹窗支持滚动显示完整内容', async () => {
   assert.match(html, /填 IP 或完整网址；非默认端口才加 :端口/);
   assert.match(html, /HTTP\(S\) \+ API（EdgeOne 选这个）/);
   assert.match(html, /HTTP\(S\) \+ TCP \+ API（Cloudflare Worker 选这个）<\/option>/);
+  assert.match(html, /name="provider_type"/);
+  assert.match(html, /核云（预设）/);
+  assert.match(html, /其他魔方财务 IDC/);
+  assert.match(html, /name="provider_display_name"/);
+  assert.match(html, /https:\/\/你的IDC域名\/v1/);
+  assert.match(html, /id="serverProviderSelect"/);
+  assert.match(html, /name="remote_id"/);
+  assert.match(html, /function renderProviderOptions/);
+  assert.match(html, /id="testProviderBtn"/);
   assert.match(html, /统计窗口/);
   assert.match(html, /<option value="hour" selected>每小时/);
   assert.doesNotMatch(html, /支持的通知渠道/);
@@ -178,6 +189,73 @@ test('EdgeOne 初始化默认使用 HTTP(S) + API', async () => {
   const data = await overview.json();
 
   assert.equal(data.servers[0].check_method, 'http_then_api');
+});
+
+test('EdgeOne 支持不同 IDC 保存相同远程产品 ID', async () => {
+  const kv = new MemoryKV();
+  const env = { ADMIN_TOKEN: 'admin', ZJMF_KV: kv };
+  const setup = await handleEdgeOneRequest(new Request('https://edgeone.example/api/admin/setup', {
+    method: 'POST',
+    headers: { authorization: 'Bearer admin', 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      providers: [
+        { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1', api_account: 'a', api_password: 'key-a' },
+        { name: 'other', display_name: '其他 IDC', api_base_url: 'https://idc.example/v1', api_account: 'b', api_password: 'key-b' },
+      ],
+      servers: [
+        { id: '1001', name: '核云服务器', provider: 'heyun' },
+        { id: '1001', name: '其他服务器', provider: 'other' },
+      ],
+      settings: {},
+    }),
+  }), env);
+
+  assert.equal(setup.status, 200);
+  const overview = await handleEdgeOneRequest(new Request('https://edgeone.example/api/admin/overview', {
+    headers: { authorization: 'Bearer admin' },
+  }), env);
+  const data = await overview.json();
+  assert.deepEqual(data.servers.map(({ id, remote_id, provider }) => ({ id, remote_id, provider })), [
+    { id: 'heyun::1001', remote_id: '1001', provider: 'heyun' },
+    { id: 'other::1001', remote_id: '1001', provider: 'other' },
+  ]);
+});
+
+test('EdgeOne 初始化复用旧 KV 中同一 IDC 的服务器 ID', async () => {
+  const kv = new MemoryKV();
+  await kv.put('zjmf_monitor_state', JSON.stringify({
+    providers: [
+      { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1', api_account: 'a', api_password: 'key-a' },
+    ],
+    servers: [
+      { id: '1001', remote_id: '1001', name: '旧监控项', provider: 'heyun', enabled: true },
+    ],
+  }));
+  const env = { ADMIN_TOKEN: 'admin', ZJMF_KV: kv };
+  const headers = { authorization: 'Bearer admin', 'content-type': 'application/json; charset=utf-8' };
+  const setup = await handleEdgeOneRequest(new Request('https://edgeone.example/api/admin/setup', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      providers: [
+        { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1', api_account: 'a', api_password: 'key-a' },
+      ],
+      servers: [
+        { remote_id: '1001', name: '更新后的监控项', provider: 'heyun' },
+      ],
+      settings: {},
+    }),
+  }), env);
+
+  assert.equal(setup.status, 200);
+  const overview = await handleEdgeOneRequest(new Request('https://edgeone.example/api/admin/overview', {
+    headers: { authorization: 'Bearer admin' },
+  }), env);
+  const data = await overview.json();
+  assert.equal(data.servers.length, 1);
+  assert.equal(data.servers[0].id, '1001');
+  assert.equal(data.servers[0].remote_id, '1001');
+  assert.equal(data.servers[0].name, '更新后的监控项');
 });
 
 test('EdgeOne 初始化会保存更多通知渠道字段并脱敏返回', async () => {
@@ -303,6 +381,42 @@ test('保存服务器时自动使用已有服务商', async () => {
   assert.equal(data.servers[0].provider, 'heyunidc_demo_account');
 });
 
+test('EdgeOne 多个 IDC 时无效服务商不会回退到第一条', async () => {
+  const kv = new MemoryKV();
+  const env = { ADMIN_TOKEN: 'admin', ZJMF_KV: kv };
+  const headers = {
+    authorization: 'Bearer admin',
+    'content-type': 'application/json; charset=utf-8',
+  };
+  await handleEdgeOneRequest(new Request('https://edgeone.example/api/admin/setup', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      providers: [
+        { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1', api_account: 'a', api_password: 'key-a' },
+        { name: 'other', display_name: '其他 IDC', api_base_url: 'https://idc.example/v1', api_account: 'b', api_password: 'key-b' },
+      ],
+      servers: [],
+      settings: {},
+      notification: { enabled: false },
+    }),
+  }), env);
+
+  const save = await handleEdgeOneRequest(new Request('https://edgeone.example/api/admin/servers', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ remote_id: '1001', name: '测试服务器', provider: 'missing' }),
+  }), env);
+  const data = await save.json();
+
+  assert.equal(save.status, 400);
+  assert.equal(data.error, 'PROVIDER_NOT_FOUND');
+  const overview = await handleEdgeOneRequest(new Request('https://edgeone.example/api/admin/overview', {
+    headers: { authorization: 'Bearer admin' },
+  }), env);
+  assert.equal((await overview.json()).servers.length, 0);
+});
+
 test('EdgeOne 编辑服务器时不传重启次数上限会保留旧值', async () => {
   const kv = new MemoryKV();
   const env = { ADMIN_TOKEN: 'admin', ZJMF_KV: kv };
@@ -371,4 +485,33 @@ test('EdgeOne 公共状态接口隐藏不在状态页显示的服务器', async 
 
   assert.equal(res.status, 200);
   assert.equal(data.servers.length, 0);
+});
+
+test('EdgeOne 状态页包含可点击的故障明细弹窗', async () => {
+  const kv = new MemoryKV();
+  await kv.put('zjmf_monitor_state', JSON.stringify({
+    settings: { setup_completed: '1' },
+    providers: [],
+    servers: [{ id: '1001', name: '测试服务器', provider: 'heyun', enabled: true, visible_on_status: true }],
+    runtimes: { 1001: { state: 'healthy', last_check_time: 1784251740 } },
+    events: [],
+    check_results: [
+      { id: 1, server_id: '1001', ok: false, created_at: 1784247780 },
+      { id: 2, server_id: '1001', ok: false, created_at: 1784248080 },
+      { id: 3, server_id: '1001', ok: true, created_at: 1784248380 },
+    ],
+    next_event_id: 1,
+    next_check_id: 4,
+  }));
+  const res = await handleEdgeOneRequest(new Request('https://edgeone.example/status'), {
+    ADMIN_TOKEN: 'admin',
+    ZJMF_KV: kv,
+  });
+  const html = await res.text();
+
+  assert.equal(res.status, 200);
+  assert.match(html, /id="outageModal"/);
+  assert.match(html, /data-outages=/);
+  assert.match(html, /function openOutageModal/);
+  assert.match(html, /当天没有记录到故障。/);
 });

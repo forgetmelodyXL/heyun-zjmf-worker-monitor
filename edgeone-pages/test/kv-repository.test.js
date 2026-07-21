@@ -42,7 +42,9 @@ test('KVRepository 保存服务商、服务器和设置', async () => {
 
 test('KVRepository 生成状态页所需历史和事件', async () => {
   const repo = new KVRepository(new MemoryKV());
-  await repo.addCheckResult({ server_id: '1001', ok: true, latency_ms: 23, created_at: 1700000000 });
+  await repo.addCheckResult({ server_id: '1001', ok: false, latency_ms: 0, created_at: 1700000000 });
+  await repo.addCheckResult({ server_id: '1001', ok: false, latency_ms: 0, created_at: 1700000300 });
+  await repo.addCheckResult({ server_id: '1001', ok: true, latency_ms: 23, created_at: 1700000600 });
   await repo.addEvent({ server_id: '1001', old_state: 'healthy', new_state: 'suspect', label: '检测异常', level: 'warning', message: '异常', created_at: 1700000000 });
 
   const recent = await repo.listRecentChecks('1001');
@@ -50,6 +52,9 @@ test('KVRepository 生成状态页所需历史和事件', async () => {
   const events = await repo.listPublicEvents(['1001']);
 
   assert.equal(recent[0].ok, true);
-  assert.equal(daily.get('1001')[0].checks, 1);
+  assert.equal(daily.get('1001')[0].checks, 3);
+  assert.deepEqual(daily.get('1001')[0].outages, [
+    { start_at: 1700000000, end_at: 1700000600, duration_seconds: 600 },
+  ]);
   assert.equal(events.get('1001')[0].label, '检测异常');
 });

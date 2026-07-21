@@ -39,6 +39,7 @@ class FakeStatement {
     if (this.sql.includes('SELECT * FROM servers ORDER BY id')) return { results: this.data.servers };
     if (this.sql.includes('FROM servers s')) return { results: this.data.status };
     if (this.sql.includes('ORDER BY created_at DESC, id DESC')) return { results: this.data.recentChecks };
+    if (this.sql.includes('ORDER BY server_id, created_at ASC')) return { results: this.data.outageChecks || [] };
     if (this.sql.includes('FROM check_results')) return { results: this.data.dailyResults };
     if (this.sql.includes('FROM events')) return { results: this.data.events };
     throw new Error(`Unexpected SQL: ${this.sql}`);
@@ -73,16 +74,17 @@ class FakeStatement {
     if (this.sql.includes('INSERT INTO servers')) {
       this.data.serverWrites.push({
         id: this.args[0],
-        name: this.args[1],
-        ip: this.args[2],
-        provider: this.args[3],
-        check_method: this.args[4],
-        enabled: this.args[5],
-        visible_on_status: this.args[6],
-        daily_reboot_limit: this.args[7],
-        scheduled_reboot: this.args[8],
-        http_url: this.args[9],
-        tcp_port: this.args[13],
+        remote_id: this.args[1],
+        name: this.args[2],
+        ip: this.args[3],
+        provider: this.args[4],
+        check_method: this.args[5],
+        enabled: this.args[6],
+        visible_on_status: this.args[7],
+        daily_reboot_limit: this.args[8],
+        scheduled_reboot: this.args[9],
+        http_url: this.args[10],
+        tcp_port: this.args[14],
       });
       return {};
     }
@@ -212,6 +214,7 @@ function env(overrides = {}) {
         { ok: 1, latency_ms: 120, created_at: 1778385053 },
         { ok: 0, latency_ms: 0, created_at: 1778384753 },
       ],
+      outageChecks: overrides.outageChecks || [],
     }),
   };
 }
@@ -329,7 +332,8 @@ test('初始化接口一次保存服务商、服务器、监控参数和通知�
 
   assert.equal(res.status, 200);
   assert.equal(testEnv.DB.data.providerWrites[0].api_account, 'acct');
-  assert.equal(testEnv.DB.data.serverWrites[0].id, '4075');
+  assert.equal(testEnv.DB.data.serverWrites[0].id, 'heyunidc::4075');
+  assert.equal(testEnv.DB.data.serverWrites[0].remote_id, '4075');
   assert.equal(testEnv.DB.data.serverWrites[0].check_method, 'service_then_power');
   assert.equal(testEnv.DB.data.settings.check_interval, '120');
   assert.equal(testEnv.DB.data.settings.api_timeout, '15');
@@ -385,9 +389,64 @@ test('初始化接口支持多个账号一次导入多个服务器', async () =>
 
   assert.equal(res.status, 200);
   assert.deepEqual(testEnv.DB.data.providerWrites.map((provider) => provider.name), ['heyunidc_a', 'heyunidc_b']);
-  assert.deepEqual(testEnv.DB.data.serverWrites.map((server) => server.id), ['1001', '1002', '2001']);
+  assert.deepEqual(testEnv.DB.data.serverWrites.map((server) => server.id), ['heyunidc_a::1001', 'heyunidc_a::1002', 'heyunidc_b::2001']);
+  assert.deepEqual(testEnv.DB.data.serverWrites.map((server) => server.remote_id), ['1001', '1002', '2001']);
   assert.deepEqual(testEnv.DB.data.serverWrites.map((server) => server.provider), ['heyunidc_a', 'heyunidc_a', 'heyunidc_b']);
   assert.equal(testEnv.DB.data.settings.setup_completed, '1');
+});
+
+test('不同魔方财务 IDC 的相同产品 ID 会保存为独立监控项', async () => {
+  const testEnv = env();
+  const res = await handleRequest(new Request('https://worker.example/api/admin/setup', {
+    method: 'POST',
+    headers: { authorization: 'Bearer admin-password', 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      providers: [
+        { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1/', api_account: 'a', api_password: 'key-a' },
+        { name: 'moyun', display_name: '魔云', api_base_url: 'https://api.moyun.example/v1', api_account: 'b', api_password: 'key-b' },
+      ],
+      servers: [
+        { id: '1001', name: '核云服务器', provider: 'heyun' },
+        { id: '1001', name: '魔云服务器', provider: 'moyun' },
+      ],
+      settings: {},
+    }),
+  }), testEnv);
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(testEnv.DB.data.serverWrites.map(({ id, remote_id, provider }) => ({ id, remote_id, provider })), [
+    { id: 'heyun::1001', remote_id: '1001', provider: 'heyun' },
+    { id: 'moyun::1001', remote_id: '1001', provider: 'moyun' },
+  ]);
+  assert.equal(testEnv.DB.data.providerWrites[0].api_base_url, 'https://www.heyunidc.cn/v1');
+});
+
+test('初始化接口复用迁移前同一 IDC 的旧服务器 ID', async () => {
+  const testEnv = env({
+    providers: [
+      { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1', api_account: 'a', api_password: 'key-a' },
+    ],
+    servers: [
+      { id: '1001', remote_id: '1001', name: '旧监控项', provider: 'heyun', enabled: 1 },
+    ],
+  });
+  const res = await handleRequest(new Request('https://worker.example/api/admin/setup', {
+    method: 'POST',
+    headers: { authorization: 'Bearer admin-password', 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      providers: [
+        { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1', api_account: 'a', api_password: 'key-a' },
+      ],
+      servers: [
+        { remote_id: '1001', name: '更新后的监控项', provider: 'heyun' },
+      ],
+      settings: {},
+    }),
+  }), testEnv);
+
+  assert.equal(res.status, 200);
+  assert.equal(testEnv.DB.data.serverWrites[0].id, '1001');
+  assert.equal(testEnv.DB.data.serverWrites[0].remote_id, '1001');
 });
 
 test('初始化接口缺少必填项时返回具体缺失字段', async () => {
@@ -404,7 +463,7 @@ test('初始化接口缺少必填项时返回具体缺失字段', async () => {
   assert.equal(res.status, 400);
   assert.equal(data.error, 'INVALID_SETUP');
   assert.equal(data.message, '初始化信息不完整');
-  assert.deepEqual(data.missing, ['provider.api_account', 'provider.api_password', 'server.id']);
+  assert.deepEqual(data.missing, ['provider.api_account', 'provider.api_password', 'server.remote_id']);
 });
 
 test('管理概览返回配置并仅隐藏 pushplus token 和服务器 IP', async () => {
@@ -565,6 +624,9 @@ test('公共状态接口返回真实天级可用性和事件历史且不泄露�
       { server_id: '8564', date_key: '2026-05-10', total: 3, ok_count: 2, avg_latency_ms: 1200 },
       { server_id: '8564', date_key: '2026-05-11', total: 1, ok_count: 1, avg_latency_ms: 900 },
     ],
+    outageChecks: [
+      { server_id: '8564', created_at: 1778384753, next_ok: 1, next_created_at: 1778385053 },
+    ],
   }));
   const text = await res.text();
   const data = JSON.parse(text);
@@ -573,6 +635,9 @@ test('公共状态接口返回真实天级可用性和事件历史且不泄露�
   assert.equal(data.servers[0].daily_history.length, 2);
   assert.equal(data.servers[0].daily_history[0].uptime, '66.667%');
   assert.equal(data.servers[0].daily_history[0].failures, 1);
+  assert.equal(data.servers[0].daily_history[0].outages.length, 1);
+  assert.equal(data.servers[0].daily_history[0].outages[0].start_at, 1778384753);
+  assert.equal(data.servers[0].daily_history[0].outages[0].end_at, 1778385053);
   assert.equal(data.servers[0].recent_checks.length, 2);
   assert.equal(data.servers[0].recent_checks[0].latency_ms, 120);
   assert.equal(data.servers[0].events[0].label, '触发重启');
@@ -795,6 +860,29 @@ test('保存服务器时会回退到现有服务商，避免 PROVIDER_NOT_FOUND'
 
   assert.equal(res.status, 200);
   assert.equal(testEnv.DB.data.serverWrites[0].provider, 'heyunidc_186_244_244_31');
+});
+
+test('多个 IDC 时无效服务商不会回退到第一条', async () => {
+  const testEnv = env({
+    providers: [
+      { name: 'heyun', display_name: '核云', api_base_url: 'https://www.heyunidc.cn/v1', api_account: 'a', api_password: 'key-a' },
+      { name: 'other', display_name: '其他 IDC', api_base_url: 'https://idc.example/v1', api_account: 'b', api_password: 'key-b' },
+    ],
+    servers: [],
+  });
+  const res = await handleRequest(new Request('https://worker.example/api/admin/servers', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer admin-password',
+      'content-type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify({ remote_id: '1001', name: '测试服务器', provider: 'missing' }),
+  }), testEnv);
+  const data = await res.json();
+
+  assert.equal(res.status, 400);
+  assert.equal(data.error, 'PROVIDER_NOT_FOUND');
+  assert.equal(testEnv.DB.data.serverWrites.length, 0);
 });
 
 test('系统更新检查会读取 GitHub 最新提交并返回更新状态', async () => {

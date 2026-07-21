@@ -63,7 +63,8 @@ function daySegments(server) {
     const failures = Number(day.failures || 0);
     const level = failures === 0 ? 'ok' : Number(day.uptime_value || parseFloat(day.uptime)) <= 0 ? 'bad' : 'warn';
     const tip = escapeHtml(`${day.date}\n● ${day.uptime} 可用率\n探测 ${day.checks || 0} 次，失败 ${failures} 次\n不可用时长 ${duration(day.downtime_seconds)}`);
-    return `<span class="day-segment ${level}" data-tip="${tip}" tabindex="0"></span>`;
+    const outages = escapeHtml(JSON.stringify(Array.isArray(day.outages) ? day.outages : []));
+    return `<span class="day-segment ${level}" data-tip="${tip}" data-date="${escapeHtml(day.date)}" data-failures="${failures}" data-downtime="${Number(day.downtime_seconds || 0)}" data-outages="${outages}" role="button" aria-label="${escapeHtml(day.date)} 故障明细" tabindex="0"></span>`;
   }).join('')}`;
 }
 
@@ -160,7 +161,8 @@ export function renderStatusPage(servers, settings = {}) {
     .probe-bars{height:30px;background:var(--track);border-radius:8px;padding:5px 6px;display:flex;gap:4px;align-items:end}.probe-bars span{position:relative;display:block;width:6px;border-radius:2px;outline:0;transition:transform .16s ease,box-shadow .16s ease}.probe-bars .ok{background:#10c98f}.probe-bars .bad{background:var(--bad)}.probe-bars .probe-placeholder{background:#d9e4f2;opacity:.85}.day-segment[data-tip]:hover,.day-segment[data-tip]:focus,.probe-bars span[data-tip]:hover,.probe-bars span[data-tip]:focus{box-shadow:0 0 0 2px #fff,0 0 0 4px rgba(15,27,45,.20);transform:translateY(-7px);z-index:4}
     .day-track span[data-tip]:hover:after,.day-track span[data-tip]:focus:after,.probe-bars span[data-tip]:hover:after,.probe-bars span[data-tip]:focus:after{content:attr(data-tip);position:absolute;left:50%;bottom:30px;transform:translateX(-50%);z-index:6;white-space:pre;min-width:180px;background:#fff;border:1px solid var(--line);box-shadow:0 18px 36px rgba(15,27,45,.16);border-radius:12px;padding:10px 12px;color:var(--ink);font-size:13px}.day-track span[data-tip]:hover:before,.day-track span[data-tip]:focus:before,.probe-bars span[data-tip]:hover:before,.probe-bars span[data-tip]:focus:before{content:"";position:absolute;left:50%;bottom:24px;border:7px solid transparent;border-top-color:#fff;transform:translateX(-50%);z-index:7}
     .card-foot{display:flex;gap:12px;flex-wrap:wrap;color:#6f819c;margin-top:10px}.sr-meta{font-size:12px;color:#8ba0bd;margin-top:8px}.history{margin-top:28px}.history-head{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:26px 0 12px}.history h2{font-size:24px;margin:0}.more{color:var(--blue);text-decoration:none;font-weight:700}.history-card{padding:0}.history-card ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}.timeline-item{display:grid;grid-template-columns:156px 18px 1fr;gap:12px;align-items:start;padding:14px;border:1px solid var(--line);background:#fff;border-radius:16px}.timeline-item time{color:var(--muted);font-size:13px}.timeline-dot{width:10px;height:10px;border-radius:99px;background:var(--blue);margin-top:4px}.level-critical .timeline-dot{background:var(--bad)}.level-warning .timeline-dot{background:var(--warn)}.level-info .timeline-dot{background:var(--ok)}.timeline-item b{display:block}.timeline-item p{margin:4px 0 0;color:var(--muted)}.history-empty{padding:28px;border:1px dashed var(--line);border-radius:22px;color:var(--muted);background:#fff;text-align:center}.empty{padding:28px;border:1px dashed var(--line);border-radius:22px;color:var(--muted);background:#fff}footer{margin-top:26px;color:var(--muted);font-size:13px}.api{color:var(--blue);text-decoration:none}
-    @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}@media(max-width:760px){.hero{display:block}.summary{justify-content:flex-start;margin-top:16px}.card-head{display:block}.badges{justify-content:flex-start;margin-top:12px}.history-head{display:block}.timeline-item{grid-template-columns:156px 18px 1fr}}
+    .outage-modal[hidden]{display:none}.outage-modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:24px;background:rgba(15,27,45,.56);backdrop-filter:blur(5px)}.outage-dialog{width:min(660px,100%);max-height:min(680px,calc(100vh - 48px));overflow:auto;background:#fff;border:1px solid rgba(217,226,239,.9);border-radius:28px;padding:28px 32px 32px;box-shadow:0 32px 90px rgba(15,27,45,.28)}.outage-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.outage-kicker{margin:0 0 6px;color:#8a9bb4}.outage-date{margin:0;font-size:28px;letter-spacing:0}.outage-close{border:0;background:transparent;color:#43536b;font:inherit;font-size:17px;padding:8px;cursor:pointer}.outage-summary{margin:8px 0 22px;color:#52647e;font-size:17px}.outage-list{display:grid;gap:10px}.outage-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:17px 18px;border-radius:12px;background:#f6f8fb;color:#273851;font-size:17px}.outage-empty{margin:0;color:#60728d;font-size:17px}.day-segment[role="button"]{cursor:pointer}
+    @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}@media(max-width:760px){.hero{display:block}.summary{justify-content:flex-start;margin-top:16px}.card-head{display:block}.badges{justify-content:flex-start;margin-top:12px}.history-head{display:block}.timeline-item{grid-template-columns:156px 18px 1fr}.outage-modal{padding:16px}.outage-dialog{padding:24px 22px;border-radius:22px}.outage-row{font-size:15px}}
   </style>
 </head>
 <body>
@@ -173,6 +175,30 @@ export function renderStatusPage(servers, settings = {}) {
     ${eventHistory(servers)}
     <footer>数据接口：<a class="api" href="/api/status">/api/status</a></footer>
   </main>
+  <div id="outageModal" class="outage-modal" role="dialog" aria-modal="true" aria-labelledby="outageModalTitle" hidden>
+    <section class="outage-dialog">
+      <div class="outage-head"><div><p class="outage-kicker">故障明细</p><h2 id="outageModalTitle" class="outage-date"></h2></div><button id="outageClose" class="outage-close" type="button">关闭</button></div>
+      <p id="outageSummary" class="outage-summary"></p>
+      <div id="outageList" class="outage-list"></div>
+    </section>
+  </div>
+  <script>
+    const outageModal=document.getElementById('outageModal');
+    const outageTitle=document.getElementById('outageModalTitle');
+    const outageSummary=document.getElementById('outageSummary');
+    const outageList=document.getElementById('outageList');
+    const outageClose=document.getElementById('outageClose');
+    let outageTrigger=null;
+    function outageDuration(seconds){const value=Math.max(0,Number(seconds||0));if(value<60)return value+'s';if(value<3600)return Math.round(value/60)+'m';return Math.floor(value/3600)+'h '+Math.round(value%3600/60)+'m'}
+    function outageDate(value){const parts=String(value||'').split('-').map(Number);return parts.length===3?parts[0]+'/'+parts[1]+'/'+parts[2]:String(value||'')}
+    function outageTime(seconds){return new Date(Number(seconds||0)*1000).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false})}
+    function closeOutageModal(){outageModal.hidden=true;if(outageTrigger)outageTrigger.focus();outageTrigger=null}
+    function openOutageModal(segment){outageTrigger=segment;let outages=[];try{outages=JSON.parse(segment.dataset.outages||'[]')}catch{}const total=Number(segment.dataset.downtime||0);const failures=Number(segment.dataset.failures||0);outageTitle.textContent=outageDate(segment.dataset.date);outageSummary.textContent='总计: '+outageDuration(total);if(outages.length){outageList.innerHTML=outages.map(item=>'<div class="outage-row"><span>'+outageTime(item.start_at)+' – '+outageTime(item.end_at)+'</span><b>'+outageDuration(item.duration_seconds)+'</b></div>').join('')}else{outageList.innerHTML='<p class="outage-empty">'+(failures?'当天有故障记录，但暂无可显示的详细时段。':'当天没有记录到故障。')+'</p>'}outageModal.hidden=false;outageClose.focus()}
+    document.addEventListener('click',event=>{const segment=event.target.closest('.day-segment[data-date]');if(segment)openOutageModal(segment)});
+    document.addEventListener('keydown',event=>{if((event.key==='Enter'||event.key===' ')&&event.target.matches('.day-segment[data-date]')){event.preventDefault();openOutageModal(event.target)}if(event.key==='Escape'&&!outageModal.hidden)closeOutageModal()});
+    outageClose.addEventListener('click',closeOutageModal);
+    outageModal.addEventListener('click',event=>{if(event.target===outageModal)closeOutageModal()});
+  </script>
 </body>
 </html>`;
 }

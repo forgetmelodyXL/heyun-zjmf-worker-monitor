@@ -20,6 +20,62 @@ function percent(ok, total) {
   return `${((Number(ok || 0) / count) * 100).toFixed(3)}%`;
 }
 
+const HISTORY_TIMEZONE_OFFSET = 8 * 60 * 60;
+
+function checkOk(value) {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+function historyDate(timestamp) {
+  return new Date((Number(timestamp || 0) + HISTORY_TIMEZONE_OFFSET) * 1000).toISOString().slice(0, 10);
+}
+
+function appendOutage(grouped, serverId, startAt, endAt) {
+  let cursor = Number(startAt || 0);
+  const end = Number(endAt || 0);
+  while (cursor < end) {
+    const date = historyDate(cursor);
+    const dayStart = Math.floor(Date.parse(`${date}T00:00:00Z`) / 1000) - HISTORY_TIMEZONE_OFFSET;
+    const pieceEnd = Math.min(end, dayStart + 24 * 60 * 60);
+    const serverDays = grouped.get(serverId) || new Map();
+    const outages = serverDays.get(date) || [];
+    outages.push({ start_at: cursor, end_at: pieceEnd, duration_seconds: pieceEnd - cursor });
+    serverDays.set(date, outages);
+    grouped.set(serverId, serverDays);
+    cursor = pieceEnd;
+  }
+}
+
+function dailyOutages(rows, intervalSeconds) {
+  const interval = Math.max(1, Number(intervalSeconds || 300));
+  const maxGap = interval * 2;
+  const grouped = new Map();
+  let active = null;
+
+  const commit = () => {
+    if (!active) return;
+    appendOutage(grouped, active.server_id, active.start_at, active.end_at);
+    active = null;
+  };
+
+  for (const row of rows || []) {
+    const serverId = String(row.server_id);
+    const startAt = Number(row.created_at || 0);
+    const nextAt = Number(row.next_created_at || 0);
+    const gap = nextAt - startAt;
+    const hasNearbyNext = gap > 0 && gap <= maxGap;
+    const endAt = hasNearbyNext ? nextAt : startAt + interval;
+    const nextIsFailure = !checkOk(row.next_ok) && row.next_ok != null;
+
+    if (active && (active.server_id !== serverId || startAt > active.end_at + 1)) commit();
+    if (!active) active = { server_id: serverId, start_at: startAt, end_at: endAt };
+    else active.end_at = Math.max(active.end_at, endAt);
+    if (!hasNearbyNext || !nextIsFailure) commit();
+  }
+  commit();
+  return grouped;
+}
+
 function defaultState() {
   return {
     settings: {},
@@ -34,7 +90,12 @@ function defaultState() {
 }
 
 function normalizeState(raw) {
-  return { ...defaultState(), ...(raw && typeof raw === 'object' ? raw : {}) };
+  const state = { ...defaultState(), ...(raw && typeof raw === 'object' ? raw : {}) };
+  state.servers = (Array.isArray(state.servers) ? state.servers : []).map((server) => ({
+    ...server,
+    remote_id: server.remote_id || server.id,
+  }));
+  return state;
 }
 
 async function kvGetJson(kv, key) {
@@ -157,7 +218,7 @@ export class KVRepository {
 
   async upsertServer(server, now) {
     await this.updateState((state) => {
-      const next = { ...server, enabled: server.enabled !== false, created_at: server.created_at || now, updated_at: now };
+      const next = { ...server, remote_id: server.remote_id || server.id, enabled: server.enabled !== false, created_at: server.created_at || now, updated_at: now };
       const index = state.servers.findIndex((item) => String(item.id) === String(server.id));
       if (index >= 0) state.servers[index] = { ...state.servers[index], ...next };
       else state.servers.push(next);
@@ -245,28 +306,48 @@ export class KVRepository {
     return [...state.events].sort((a, b) => Number(b.id || 0) - Number(a.id || 0)).slice(0, limit);
   }
 
-  async listDailyHistory(serverIds, days = 30, now = Math.floor(Date.now() / 1000)) {
+  async listDailyHistory(serverIds, days = 30, now = Math.floor(Date.now() / 1000), intervalSeconds = 300) {
     const state = await this.readState();
     const since = now - days * 24 * 60 * 60;
     const grouped = new Map(serverIds.map((id) => [String(id), []]));
     const buckets = new Map();
-    for (const row of state.check_results.filter((item) => serverIds.map(String).includes(String(item.server_id)) && Number(item.created_at || 0) >= since)) {
-      const date = new Date(Number(row.created_at || 0) * 1000 + 8 * 3600 * 1000).toISOString().slice(0, 10);
+    const serverIdSet = new Set(serverIds.map(String));
+    const rows = state.check_results.filter((item) => serverIdSet.has(String(item.server_id)) && Number(item.created_at || 0) >= since);
+    for (const row of rows) {
+      const date = historyDate(row.created_at);
       const key = `${row.server_id}|${date}`;
       const bucket = buckets.get(key) || { server_id: String(row.server_id), date, total: 0, ok: 0, latency: 0 };
       bucket.total += 1;
-      bucket.ok += row.ok ? 1 : 0;
+      bucket.ok += checkOk(row.ok) ? 1 : 0;
       bucket.latency += Number(row.latency_ms || 0);
       buckets.set(key, bucket);
     }
+    const sortedRows = [...rows].sort((a, b) => String(a.server_id).localeCompare(String(b.server_id))
+      || Number(a.created_at || 0) - Number(b.created_at || 0)
+      || Number(a.id || 0) - Number(b.id || 0));
+    const failedRows = [];
+    sortedRows.forEach((row, index) => {
+      if (checkOk(row.ok)) return;
+      const next = sortedRows[index + 1];
+      const sameServer = next && String(next.server_id) === String(row.server_id);
+      failedRows.push({
+        server_id: row.server_id,
+        created_at: row.created_at,
+        next_ok: sameServer ? next.ok : null,
+        next_created_at: sameServer ? next.created_at : null,
+      });
+    });
+    const outages = dailyOutages(failedRows, intervalSeconds);
     for (const bucket of buckets.values()) {
+      const dayOutages = outages.get(bucket.server_id)?.get(bucket.date) || [];
       grouped.get(bucket.server_id)?.push({
         date: bucket.date,
         checks: bucket.total,
         failures: Math.max(0, bucket.total - bucket.ok),
         uptime: percent(bucket.ok, bucket.total),
         avg_latency_ms: Math.round(bucket.latency / bucket.total),
-        downtime_seconds: Math.max(0, bucket.total - bucket.ok) * 300,
+        downtime_seconds: dayOutages.reduce((total, outage) => total + Number(outage.duration_seconds || 0), 0),
+        outages: dayOutages,
       });
     }
     return grouped;

@@ -2,6 +2,22 @@ export function extractJwt(data) {
   return data?.jwt || data?.data?.jwt || '';
 }
 
+export function normalizeApiBaseUrl(value) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  if (!/^https?:\/\//i.test(text)) text = `https://${text}`;
+  try {
+    const url = new URL(text);
+    url.search = '';
+    url.hash = '';
+    const path = url.pathname.replace(/\/+$/, '');
+    url.pathname = !path || path === '/' || path.toLowerCase() === '/apimanage' ? '/v1' : path;
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return text.replace(/\/+$/, '');
+  }
+}
+
 function validHosts(value) {
   return Array.isArray(value) ? value.filter((item) => item && typeof item === 'object') : [];
 }
@@ -68,6 +84,7 @@ async function readPayload(response) {
 export class ZjmfClient {
   constructor(provider, fetcher = (input, init) => globalThis.fetch(input, init), apiTimeout = 60) {
     this.provider = provider;
+    this.provider.api_base_url = normalizeApiBaseUrl(provider?.api_base_url);
     this.fetcher = fetcher;
     this.apiTimeout = apiTimeout;
     this.lastError = '';

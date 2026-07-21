@@ -80,6 +80,25 @@ test('runMonitorOnce 将连续异常服务器推进到 down 并执行重启', as
   assert.equal(repo.events.some((event) => event.new_state === 'down'), true);
 });
 
+test('runMonitorOnce 使用远程产品 ID 调用魔方财务 API', async () => {
+  const repo = new FakeRepo({
+    settings: { suspect_threshold: 3, reboot_cooldown: 300, recover_timeout: 300, default_daily_reboot_limit: 3, api_timeout: 60, timezone: 'Asia/Shanghai', check_interval: 300 },
+    providers: { moyun: { name: 'moyun', api_base_url: 'https://api.example/v1', jwt_token: 'jwt', jwt_expire_at: 9999999999 } },
+    servers: [{ id: 'moyun::1001', remote_id: '1001', name: '魔云服务器', provider: 'moyun', check_method: 'api_only', daily_reboot_limit: 3 }],
+    runtimes: { 'moyun::1001': null },
+  });
+  const calls = [];
+  const fetcher = async (url) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ data: { status: 'on' } }));
+  };
+
+  await runMonitorOnce({ repo, fetcher, now: 1778382000 });
+
+  assert.equal(calls.some((url) => url.includes('/hosts/1001/module/status')), true);
+  assert.equal(calls.some((url) => url.includes(encodeURIComponent('moyun::1001')) || url.includes('/hosts/moyun::1001/')), false);
+});
+
 test('runMonitorOnce 发送不泄露目标地址的中文详细通知', async () => {
   const repo = new FakeRepo({
     settings: {

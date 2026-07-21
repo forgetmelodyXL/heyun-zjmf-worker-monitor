@@ -1,6 +1,6 @@
 # 魔方财务云服务器轻量级监控与自动重启系统
 
-专为魔方财务云服务器设计，支持一键脚本快速部署到 Cloudflare Workers，也可部署到 EdgeOne Pages；无需自建服务器，零服务器成本运行，内置异常检测、自动开机/重启、通知推送和可视化管理后台。
+专为使用标准魔方财务 API 的云服务器设计，支持同时监控多个 IDC；可一键脚本快速部署到 Cloudflare Workers，也可部署到 EdgeOne Pages。无需自建服务器，零服务器成本运行，内置异常检测、自动开机/重启、通知推送和可视化管理后台。
 
 ## 界面预览
 
@@ -25,7 +25,7 @@
    - **Cloudflare Token**：打开 <https://dash.cloudflare.com/profile/api-tokens>，点击 **创建令牌**，在 API 令牌模板里选择 **编辑 Cloudflare Workers**，点击 **使用模板**；再点击 **增加更多帐户**，添加 **D1 / 编辑**；账户资源选择 **包括所有账户**，区域资源选择 **包括所有区域**；最后点击 **继续以显示摘要**，再点击 **创建令牌**，复制生成的 Token。
    - **Cloudflare Account ID**：进入 Cloudflare 账户主页，在右侧三个点里点击 **复制账户 ID**；如果脚本检测到账户 ID，也可以直接复制脚本显示的值。
    - **Fork 后的仓库地址**：打开你 Fork 后的 GitHub 仓库，复制浏览器地址，例如 `https://github.com/你的用户名/heyun-zjmf-worker-monitor`。
-   - **魔方财务 API**：打开 <https://www.heyunidc.cn/apimanage>，复制魔方财务登录邮箱或手机号、API 密钥；产品 ID 可部署后在管理后台添加监控项时填写。
+   - **魔方财务 API**：核云用户打开 <https://www.heyunidc.cn/apimanage> 获取登录邮箱或手机号和 API 密钥；其他 IDC 请打开对应网站的 API 密钥管理页。`/apimanage` 是管理页，不是 API 地址；其他 IDC 的 API 地址一般填写 `https://你的IDC域名/v1`。产品 ID 可在初始化向导中自动获取，也可部署后手动填写。
    - **可能需要：更新方式**：后续更新首推再次双击 `步骤1-一键安装脚本.bat`；如果想在管理后台点 **系统更新 → 确定更新**，再按下方“更新方式”准备 GitHub 更新令牌和 GitHub Actions Secrets。
 4. 双击下载得到的 `步骤1-一键安装脚本.bat`，按提示粘贴以上信息。
    如果你是在 PowerShell 当前目录里手动运行，请先 `cd` 到文件所在目录，再输入 `.\步骤1-一键安装脚本.bat`；不要直接粘贴完整路径。
@@ -64,7 +64,7 @@ KV 绑定：打开 **KV 存储**，变量名填 `ZJMF_KV`，值选择或创建 `
    - 滑到最下面，点击 **继续以显示摘要**，再点击 **创建令牌**
 3. 准备其他信息：
    - **Cloudflare Account ID**：Cloudflare 账户主页右侧三个点 -> **复制账户 ID**。
-   - **魔方财务 API**：打开 <https://www.heyunidc.cn/apimanage> 获取登录邮箱或手机号、API 密钥。
+   - **魔方财务 API**：核云用户打开 <https://www.heyunidc.cn/apimanage> 获取登录邮箱或手机号、API 密钥；其他 IDC 使用各自的账号、密钥和 `https://你的IDC域名/v1` API 地址。
    - **Fork 后的仓库地址**：复制你 Fork 后仓库的浏览器地址。
 4. 进入 Fork 后的仓库，打开 **Settings → Secrets and variables → Actions**，添加：
 
@@ -136,6 +136,17 @@ healthy ↔ suspect → down → rebooting → recovering → healthy
 - 获取状态必须传 `?type=host`
 - 重启用 **hard_reboot**（硬重启）
 - 服务器状态为 `on` 表示正常，其他值均视为异常
+
+## 多 IDC 配置
+
+Cloudflare Worker 和 EdgeOne Pages 的初始化向导、管理后台都支持添加多个使用标准魔方财务 API 的 IDC。
+
+1. 核云选择 **核云（预设）**，系统会自动填写名称和 `https://www.heyunidc.cn/v1`。
+2. 魔云或其他平台选择 **其他魔方财务 IDC**，填写 IDC 名称、`https://你的IDC域名/v1`、登录账号和 API 密钥。
+3. 点击 **自动获取产品列表**，选择服务器后点击 **导入选中服务器**。
+4. 需要导入其他 IDC 时，切换 IDC、账号和密钥后重复上一步，再进入下一步完成初始化。
+
+API 地址必须是接口根地址，通常以 `/v1` 结尾；`/apimanage` 只是生成和查看 API 密钥的管理页面。系统按“IDC + 产品 ID”区分监控项，因此不同 IDC 中相同的产品 ID 可以同时存在。初始化后也可在 **管理后台 → 设置** 新增 IDC，并在新建监控项时选择所属 IDC。
 
 ## Python 本地版快速开始
 

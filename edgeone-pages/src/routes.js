@@ -3,7 +3,7 @@ import { D1Repository } from './repository.js';
 import { Notifier } from './notifier.js';
 import { renderAdminPage } from './admin-page.js';
 import { renderStatusPage } from './status-page.js';
-import { ZjmfClient } from './zjmf-client.js';
+import { normalizeApiBaseUrl, ZjmfClient } from './zjmf-client.js';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -23,6 +23,18 @@ function boolValueWithDefault(value, fallback = true) {
 
 function visibleOnStatus(server) {
   return boolValueWithDefault(server?.visible_on_status, true);
+}
+
+function remoteServerId(server) {
+  const explicit = String(server?.remote_id || server?.product_id || '').trim();
+  if (explicit) return explicit;
+  const id = String(server?.id || '').trim();
+  const prefix = `${String(server?.provider || '').trim()}::`;
+  return prefix !== '::' && id.startsWith(prefix) ? id.slice(prefix.length) : id;
+}
+
+function newServerId(provider, remoteId) {
+  return `${provider}::${remoteId}`;
 }
 
 async function sha256Hex(value) {
@@ -190,10 +202,11 @@ function adminHost(host) {
   };
 }
 
-async function publicStatus(repo) {
+async function publicStatus(repo, settings = null) {
+  const resolvedSettings = settings || await repo.getSettings();
   const servers = (await repo.listStatus()).filter(visibleOnStatus).map(publicServer);
   const ids = servers.map((server) => String(server.id));
-  const daily = await repo.listDailyHistory(ids);
+  const daily = await repo.listDailyHistory(ids, 30, Math.floor(Date.now() / 1000), resolvedSettings.check_interval);
   const events = await repo.listPublicEvents(ids);
   const recent = new Map();
   for (const server of servers) {
@@ -217,7 +230,8 @@ export async function handleRequest(request, env) {
         headers: { 'content-type': 'text/html; charset=utf-8' },
       });
     }
-    return new Response(renderStatusPage(await publicStatus(repo), await repo.getSettings()), {
+    const settings = await repo.getSettings();
+    return new Response(renderStatusPage(await publicStatus(repo, settings), settings), {
       headers: { 'content-type': 'text/html; charset=utf-8' },
     });
   }
@@ -229,7 +243,8 @@ export async function handleRequest(request, env) {
   }
 
   if (url.pathname === '/api/status' && request.method === 'GET') {
-    return json({ servers: await publicStatus(repo) });
+    const settings = await repo.getSettings();
+    return json({ servers: await publicStatus(repo, settings) });
   }
 
   if (!url.pathname.startsWith('/api/admin/')) return json({ error: 'NOT_FOUND' }, 404);
@@ -268,7 +283,7 @@ export async function handleRequest(request, env) {
       return json({ error: 'INVALID_PROVIDER' }, 400);
     }
     const client = new ZjmfClient({
-      api_base_url: body.api_base_url,
+      api_base_url: normalizeApiBaseUrl(body.api_base_url),
       api_account: body.api_account,
       api_password: body.api_password,
     }, env.fetcher || ((input, init) => fetch(input, init)));
@@ -380,7 +395,7 @@ export async function handleRequest(request, env) {
     });
     servers.forEach((item, index) => {
       const prefix = batchMode ? `servers.${index}` : 'server';
-      if (!item.id) missing.push(`${prefix}.id`);
+      if (!remoteServerId(item)) missing.push(`${prefix}.remote_id`);
       if (batchMode && !item.provider) missing.push(`${prefix}.provider`);
       if (batchMode && item.provider && !providerNames.has(item.provider)) missing.push(`${prefix}.provider`);
     });
@@ -391,13 +406,20 @@ export async function handleRequest(request, env) {
     const firstProvider = providers[0] || provider;
     const firstServer = servers[0] || server;
     for (const item of providers) {
-      await repo.upsertProvider({ ...item, name: item.name || firstProvider.name || 'heyunidc', display_name: item.display_name || '核云' }, now);
+      const name = item.name || firstProvider.name || 'heyunidc';
+      await repo.upsertProvider({ ...item, name, display_name: item.display_name || name, api_base_url: normalizeApiBaseUrl(item.api_base_url) }, now);
     }
+    const existingServers = await repo.listServers();
     for (const item of servers) {
+      const providerName = item.provider || firstProvider.name || 'heyunidc';
+      const remoteId = remoteServerId({ ...item, provider: providerName });
+      const existing = existingServers.find((serverItem) => serverItem.provider === providerName && remoteServerId(serverItem) === remoteId);
       await repo.upsertServer({
         ...item,
-        name: item.name || `服务器 #${item.id}`,
-        provider: item.provider || firstProvider.name || 'heyunidc',
+        id: existing?.id || newServerId(providerName, remoteId),
+        remote_id: remoteId,
+        name: item.name || `服务器 #${remoteId}`,
+        provider: providerName,
         check_method: item.check_method || 'http_then_api',
         visible_on_status: boolValueWithDefault(item.visible_on_status, true),
         enabled: true,
@@ -435,25 +457,33 @@ export async function handleRequest(request, env) {
     const existing = await repo.getProvider(body.name);
     const apiPassword = body.api_password || existing?.api_password || '';
     if (!apiPassword) return json({ error: 'INVALID_PROVIDER' }, 400);
-    await repo.upsertProvider({ ...body, api_password: apiPassword }, Math.floor(Date.now() / 1000));
+    await repo.upsertProvider({ ...body, display_name: body.display_name || body.name, api_base_url: normalizeApiBaseUrl(body.api_base_url), api_password: apiPassword }, Math.floor(Date.now() / 1000));
     return json({ ok: true });
   }
 
   if (url.pathname === '/api/admin/servers' && request.method === 'POST') {
     const body = await readJson(request);
-    if (!body?.id || !body?.name) return json({ error: 'INVALID_SERVER' }, 400);
-    const existing = await repo.getServer(body.id);
+    if (!body?.name || !remoteServerId(body)) return json({ error: 'INVALID_SERVER' }, 400);
+    const requestedId = String(body.id || '').trim();
+    const directExisting = requestedId ? await repo.getServer(requestedId) : null;
     const providers = await repo.listProviders();
     const providerName = String(body.provider || '').trim();
     const provider = providers.some((item) => item.name === providerName)
       ? providerName
-      : existing?.provider && providers.some((item) => item.name === existing.provider)
-        ? existing.provider
-        : providers[0]?.name || '';
+      : directExisting?.provider && providers.some((item) => item.name === directExisting.provider)
+        ? directExisting.provider
+        : providers.length === 1 ? providers[0].name : '';
     if (!provider) return json({ error: 'PROVIDER_NOT_FOUND' }, 400);
+    const requestedRemoteId = remoteServerId({ ...body, provider });
+    const existing = directExisting?.provider === provider
+      ? directExisting
+      : (await repo.listServers()).find((item) => item.provider === provider && remoteServerId(item) === requestedRemoteId) || null;
+    const remoteId = requestedRemoteId || existing?.remote_id || existing?.id;
     const settings = await repo.getSettings();
     const nextServer = {
       ...body,
+      id: existing?.id || (requestedId.includes('::') ? requestedId : newServerId(provider, remoteId)),
+      remote_id: remoteId,
       provider,
       ip: Object.hasOwn(body, 'ip') ? body.ip : existing?.ip || '',
       check_method: body.check_method || 'http_then_api',

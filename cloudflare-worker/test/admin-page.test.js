@@ -5,6 +5,9 @@ import { renderAdminPage } from '../src/admin-page.js';
 
 test('管理后台页面使用 ZJMF_ADMIN_TOKEN 登录且不嵌入真实密码', () => {
   const html = renderAdminPage({ showIntro: true });
+  const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
+
+  assert.doesNotThrow(() => new Function(script));
 
   assert.match(html, /管理面板/);
   assert.match(html, /ZJMF_ADMIN_TOKEN/);
@@ -30,6 +33,15 @@ test('管理后台页面使用 ZJMF_ADMIN_TOKEN 登录且不嵌入真实密码',
   assert.match(html, /可换账号重复导入/);
   assert.match(html, /魔方财务登录邮箱或手机号/);
   assert.match(html, /魔方财务产品 ID/);
+  assert.match(html, /name="provider_type"/);
+  assert.match(html, /核云（预设）/);
+  assert.match(html, /其他魔方财务 IDC/);
+  assert.match(html, /name="provider_display_name"/);
+  assert.match(html, /IDC 名称/);
+  assert.match(html, /https:\/\/你的IDC域名\/v1/);
+  assert.match(html, /function syncProviderPreset/);
+  assert.match(html, /function normalizeApiUrl/);
+  assert.match(html, /server\.provider===provider\.name&&String\(server\.remote_id\)===remoteId/);
   assert.match(html, /当前选中服务器/);
   assert.match(html, /id="selectedHostPanel"/);
   assert.match(html, /#selectedHostPanel\{padding:12px 14px\}/);
@@ -127,6 +139,13 @@ test('管理后台页面使用 ZJMF_ADMIN_TOKEN 登录且不嵌入真实密码',
   assert.match(html, /autoFillHttpUrl\(\$\('serverForm'\)\)/);
   assert.match(html, /name="api_password" type="text"/);
   assert.match(html, /id="editModal"/);
+  assert.match(html, /id="serverProviderSelect"/);
+  assert.match(html, /name="remote_id"/);
+  assert.match(html, /所属 IDC/);
+  assert.match(html, /function renderProviderOptions/);
+  assert.match(html, /id="providerSelect"/);
+  assert.match(html, /id="newProviderBtn"/);
+  assert.match(html, /id="testProviderBtn"/);
   const editModalStart = html.indexOf('id="editModal"');
   const editModal = html.slice(editModalStart, html.indexOf('</section>', editModalStart));
   assert.doesNotMatch(editModal, /daily_reboot_limit/);

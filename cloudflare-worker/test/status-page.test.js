@@ -121,3 +121,43 @@ test('状态页最近探测条使用真实探测时间和延迟', () => {
   assert.equal((html.match(/class="probe-placeholder"/g) || []).length, 58);
   assert.doesNotMatch(html, /运行正常 · 9819ms/);
 });
+
+test('点击每日竖条会打开真实故障明细弹窗', () => {
+  const html = renderStatusPage([
+    {
+      id: '8564',
+      name: '主服务器',
+      state: 'healthy',
+      daily_history: [
+        {
+          date: '2026-07-17',
+          uptime: '95.417%',
+          checks: 288,
+          failures: 13,
+          downtime_seconds: 3960,
+          outages: [{ start_at: 1784247780, end_at: 1784251740, duration_seconds: 3960 }],
+        },
+        {
+          date: '2026-07-20',
+          uptime: '100.000%',
+          checks: 288,
+          failures: 0,
+          downtime_seconds: 0,
+          outages: [],
+        },
+      ],
+    },
+  ]);
+  const script = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
+
+  assert.doesNotThrow(() => new Function(script));
+  assert.match(html, /id="outageModal"/);
+  assert.match(html, /故障明细/);
+  assert.match(html, /data-outages=/);
+  assert.match(html, /data-date="2026-07-17"/);
+  assert.match(html, /data-date="2026-07-20"/);
+  assert.match(html, /function openOutageModal/);
+  assert.match(html, /当天没有记录到故障。/);
+  assert.match(html, /outage-row/);
+  assert.match(html, /Escape/);
+});

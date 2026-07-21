@@ -117,7 +117,7 @@ async function recordTransition(repo, notifier, server, oldState, nextRuntime, n
 
 async function checkApiHealth(client, server, runtime, now) {
   const started = Date.now();
-  const status = await client.getStatus(server.id, now);
+  const status = await client.getStatus(server.remote_id || server.id, now);
   const statusValue = status == null ? `ERROR: ${client.lastError || 'N/A'}` : String(status);
   const normalizedStatus = String(status ?? '').trim().toLowerCase();
   const health = status == null || !normalizedStatus ? null : normalizedStatus === 'on';
@@ -231,7 +231,8 @@ export async function runMonitorOnce({ repo, fetcher = (input, init) => globalTh
         const startLabel = action === 'power_on' ? '触发开机' : '触发重启';
         const doneLabel = action === 'power_on' ? '开机指令已发送' : '重启指令已发送';
         await recordTransition(repo, notifier, server, nextRuntime.state, rebooting, now, { label: startLabel });
-        const success = action === 'power_on' ? await client.powerOn(server.id, now) : await client.hardReboot(server.id, now);
+        const remoteId = server.remote_id || server.id;
+        const success = action === 'power_on' ? await client.powerOn(remoteId, now) : await client.hardReboot(remoteId, now);
         if (success) {
           const recovering = applyRebootSuccess(rebooting, now, rebootWindow, recentRebootCount);
           await recordTransition(repo, notifier, server, rebooting.state, recovering, now, { label: doneLabel });

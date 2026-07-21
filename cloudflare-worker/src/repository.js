@@ -17,7 +17,7 @@ function rowToBool(row, key, fallback = false) {
 }
 
 function serverRow(row) {
-  return { ...row, enabled: rowToBool(row, 'enabled'), visible_on_status: rowToBool(row, 'visible_on_status', true) };
+  return { ...row, remote_id: row.remote_id || row.id, enabled: rowToBool(row, 'enabled'), visible_on_status: rowToBool(row, 'visible_on_status', true) };
 }
 
 function placeholders(values, start = 1) {
@@ -28,6 +28,58 @@ function percent(ok, total) {
   const count = Number(total || 0);
   if (count <= 0) return '0.000%';
   return `${((Number(ok || 0) / count) * 100).toFixed(3)}%`;
+}
+
+const HISTORY_TIMEZONE_OFFSET = 8 * 60 * 60;
+
+function historyDate(timestamp) {
+  return new Date((Number(timestamp || 0) + HISTORY_TIMEZONE_OFFSET) * 1000).toISOString().slice(0, 10);
+}
+
+function appendOutage(grouped, serverId, startAt, endAt) {
+  let cursor = Number(startAt || 0);
+  const end = Number(endAt || 0);
+  while (cursor < end) {
+    const date = historyDate(cursor);
+    const dayStart = Math.floor(Date.parse(`${date}T00:00:00Z`) / 1000) - HISTORY_TIMEZONE_OFFSET;
+    const pieceEnd = Math.min(end, dayStart + 24 * 60 * 60);
+    const serverDays = grouped.get(serverId) || new Map();
+    const outages = serverDays.get(date) || [];
+    outages.push({ start_at: cursor, end_at: pieceEnd, duration_seconds: pieceEnd - cursor });
+    serverDays.set(date, outages);
+    grouped.set(serverId, serverDays);
+    cursor = pieceEnd;
+  }
+}
+
+function dailyOutages(rows, intervalSeconds) {
+  const interval = Math.max(1, Number(intervalSeconds || 300));
+  const maxGap = interval * 2;
+  const grouped = new Map();
+  let active = null;
+
+  const commit = () => {
+    if (!active) return;
+    appendOutage(grouped, active.server_id, active.start_at, active.end_at);
+    active = null;
+  };
+
+  for (const row of rows || []) {
+    const serverId = String(row.server_id);
+    const startAt = Number(row.created_at || 0);
+    const nextAt = Number(row.next_created_at || 0);
+    const gap = nextAt - startAt;
+    const hasNearbyNext = gap > 0 && gap <= maxGap;
+    const endAt = hasNearbyNext ? nextAt : startAt + interval;
+    const nextIsFailure = row.next_ok === false || Number(row.next_ok) === 0;
+
+    if (active && (active.server_id !== serverId || startAt > active.end_at + 1)) commit();
+    if (!active) active = { server_id: serverId, start_at: startAt, end_at: endAt };
+    else active.end_at = Math.max(active.end_at, endAt);
+    if (!hasNearbyNext || !nextIsFailure) commit();
+  }
+  commit();
+  return grouped;
 }
 
 export class D1Repository {
@@ -167,7 +219,7 @@ export class D1Repository {
 
   async listStatus() {
     const { results } = await this.db.prepare(`
-      SELECT s.id, s.name, s.ip, s.provider, s.enabled, s.visible_on_status, s.check_method, s.http_url, s.tcp_host, s.tcp_port,
+      SELECT s.id, s.remote_id, s.name, s.ip, s.provider, s.enabled, s.visible_on_status, s.check_method, s.http_url, s.tcp_host, s.tcp_port,
              r.state, r.last_status_value, r.last_check_time, r.last_reboot_time, r.reboot_count_today,
              cr.latency_ms AS last_latency_ms
       FROM servers s
@@ -191,7 +243,7 @@ export class D1Repository {
     return results || [];
   }
 
-  async listDailyHistory(serverIds, days = 30, now = Math.floor(Date.now() / 1000)) {
+  async listDailyHistory(serverIds, days = 30, now = Math.floor(Date.now() / 1000), intervalSeconds = 300) {
     if (!serverIds.length) return new Map();
     const since = now - days * 24 * 60 * 60;
     const ids = placeholders(serverIds);
@@ -216,8 +268,29 @@ export class D1Repository {
         failures: Math.max(0, total - ok),
         uptime: percent(ok, total),
         avg_latency_ms: Math.round(Number(row.avg_latency_ms || 0)),
-        downtime_seconds: Math.max(0, total - ok) * 300,
+        downtime_seconds: 0,
+        outages: [],
       });
+    }
+    const { results: outageRows } = await this.db.prepare(`
+      WITH ordered AS (
+        SELECT server_id, ok, created_at,
+               LEAD(ok) OVER (PARTITION BY server_id ORDER BY created_at, id) AS next_ok,
+               LEAD(created_at) OVER (PARTITION BY server_id ORDER BY created_at, id) AS next_created_at
+        FROM check_results
+        WHERE server_id IN (${ids}) AND created_at >= ?${serverIds.length + 1}
+      )
+      SELECT server_id, created_at, next_ok, next_created_at
+      FROM ordered
+      WHERE ok = 0
+      ORDER BY server_id, created_at ASC
+    `).bind(...serverIds, since).all();
+    const outages = dailyOutages(outageRows || [], intervalSeconds);
+    for (const [serverId, history] of grouped) {
+      for (const day of history) {
+        day.outages = outages.get(serverId)?.get(day.date) || [];
+        day.downtime_seconds = day.outages.reduce((total, outage) => total + Number(outage.duration_seconds || 0), 0);
+      }
     }
     return grouped;
   }
@@ -247,10 +320,10 @@ export class D1Repository {
 
   async upsertServer(server, now) {
     await this.db.prepare(`
-      INSERT INTO servers (id,name,ip,provider,check_method,enabled,visible_on_status,daily_reboot_limit,scheduled_reboot,http_url,http_method,http_expected_status,tcp_host,tcp_port,probe_timeout_ms,recovery_action,created_at,updated_at)
-      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?17)
-      ON CONFLICT(id) DO UPDATE SET name=excluded.name,ip=excluded.ip,provider=excluded.provider,check_method=excluded.check_method,enabled=excluded.enabled,visible_on_status=excluded.visible_on_status,daily_reboot_limit=excluded.daily_reboot_limit,scheduled_reboot=excluded.scheduled_reboot,http_url=excluded.http_url,http_method=excluded.http_method,http_expected_status=excluded.http_expected_status,tcp_host=excluded.tcp_host,tcp_port=excluded.tcp_port,probe_timeout_ms=excluded.probe_timeout_ms,recovery_action=excluded.recovery_action,updated_at=excluded.updated_at
-    `).bind(server.id, server.name, server.ip || '', server.provider, server.check_method || 'service_then_power', server.enabled === false ? 0 : 1, boolSetting(server.visible_on_status, true) ? 1 : 0, server.daily_reboot_limit || 0, '', server.http_url || '', server.http_method || 'GET', server.http_expected_status || '200-399', server.tcp_host || '', Number(server.tcp_port || 0), Number(server.probe_timeout_ms || 10000), server.recovery_action || 'reboot', now).run();
+      INSERT INTO servers (id,remote_id,name,ip,provider,check_method,enabled,visible_on_status,daily_reboot_limit,scheduled_reboot,http_url,http_method,http_expected_status,tcp_host,tcp_port,probe_timeout_ms,recovery_action,created_at,updated_at)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?18)
+      ON CONFLICT(id) DO UPDATE SET remote_id=excluded.remote_id,name=excluded.name,ip=excluded.ip,provider=excluded.provider,check_method=excluded.check_method,enabled=excluded.enabled,visible_on_status=excluded.visible_on_status,daily_reboot_limit=excluded.daily_reboot_limit,scheduled_reboot=excluded.scheduled_reboot,http_url=excluded.http_url,http_method=excluded.http_method,http_expected_status=excluded.http_expected_status,tcp_host=excluded.tcp_host,tcp_port=excluded.tcp_port,probe_timeout_ms=excluded.probe_timeout_ms,recovery_action=excluded.recovery_action,updated_at=excluded.updated_at
+    `).bind(server.id, server.remote_id || server.id, server.name, server.ip || '', server.provider, server.check_method || 'service_then_power', server.enabled === false ? 0 : 1, boolSetting(server.visible_on_status, true) ? 1 : 0, server.daily_reboot_limit || 0, '', server.http_url || '', server.http_method || 'GET', server.http_expected_status || '200-399', server.tcp_host || '', Number(server.tcp_port || 0), Number(server.probe_timeout_ms || 10000), server.recovery_action || 'reboot', now).run();
   }
 
   async deleteServer(id) {
