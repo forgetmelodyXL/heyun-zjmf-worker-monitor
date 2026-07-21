@@ -104,6 +104,16 @@ test('Windows 部署崩溃后的状态确认会重试网络错误', () => {
   assert.match(script, /\$status = Invoke-CommandLineWithRetry \(Get-WranglerCommand @\("deployments", "status", "--name", \$WorkerName\)\) \$WorkerRoot \$null 5/);
 });
 
+test('Worker 部署遇到瞬时 fetch failed 时自动重试', () => {
+  const script = readUtf8('deploy-one-click.ps1');
+  const deployFunction = script.match(/function Invoke-WranglerDeploy[\s\S]+?\r?\n}\r?\nfunction Test-WorkerRoot/)?.[0] ?? '';
+
+  assert.match(deployFunction, /\$maxAttempts = 5/);
+  assert.match(deployFunction, /Tee-Object -Variable deployOutput \| Out-Host/);
+  assert.match(deployFunction, /\$outputText -match \$transientPattern/);
+  assert.match(deployFunction, /Cloudflare 网络请求暂时失败/);
+});
+
 test('一键部署会引导填写网页更新令牌并写入 Worker Secret', () => {
   const script = readUtf8('deploy-one-click.ps1');
   const usage = readUtf8('使用说明.txt');

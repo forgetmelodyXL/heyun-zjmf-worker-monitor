@@ -279,19 +279,32 @@ function Invoke-WranglerDeploy([string]$WorkerRoot, [string]$WorkerName) {
     Push-Location $WorkerRoot
     try {
         $commandText = "$Npx --yes $WranglerPackage deploy"
-        Write-Note "运行: $commandText"
-        & $Npx --yes $WranglerPackage deploy
-        $exitCode = $LASTEXITCODE
-        if ($exitCode -eq 0) { return }
-        if ($exitCode -eq -1073740791) {
-            Write-Note "Wrangler 在 Windows 上返回崩溃码，正在二次确认部署状态。"
-            $status = Invoke-CommandLineWithRetry (Get-WranglerCommand @("deployments", "status", "--name", $WorkerName)) $WorkerRoot $null 5
-            if ($status -match "Version\(s\):|Created:") {
-                Write-Note "已确认 Cloudflare 端存在最新部署，继续后续步骤。"
-                return
+        $maxAttempts = 5
+        $transientPattern = '(?i)fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_|socket hang up'
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Note "运行: $commandText"
+            $deployOutput = @()
+            $global:LASTEXITCODE = 0
+            & $Npx --yes $WranglerPackage deploy 2>&1 | Tee-Object -Variable deployOutput | Out-Host
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) { return }
+            if ($exitCode -eq -1073740791) {
+                Write-Note "Wrangler 在 Windows 上返回崩溃码，正在二次确认部署状态。"
+                $status = Invoke-CommandLineWithRetry (Get-WranglerCommand @("deployments", "status", "--name", $WorkerName)) $WorkerRoot $null 5
+                if ($status -match "Version\(s\):|Created:") {
+                    Write-Note "已确认 Cloudflare 端存在最新部署，继续后续步骤。"
+                    return
+                }
             }
+            $outputText = $deployOutput | Out-String -Width 4096
+            if ($outputText -match $transientPattern -and $attempt -lt $maxAttempts) {
+                $delay = $attempt * 2
+                Write-Host "Cloudflare 网络请求暂时失败，第 $attempt/$maxAttempts 次，$delay 秒后重新部署。" -ForegroundColor Yellow
+                Start-Sleep -Seconds $delay
+                continue
+            }
+            throw "命令失败，退出码 $exitCode`n命令: $commandText`n`n完整输出:`n$outputText"
         }
-        throw "命令失败，退出码 $exitCode`n命令: $commandText"
     } finally {
         Pop-Location
     }
