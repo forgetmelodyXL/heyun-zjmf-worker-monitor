@@ -11,6 +11,18 @@ function readUtf8(relativePath) {
   return readFileSync(path.join(localScriptDir, relativePath), 'utf8');
 }
 
+function assertCrLfBatch(relativePath) {
+  const bytes = readFileSync(path.join(localScriptDir, relativePath));
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] === 0x0a) assert.equal(bytes[index - 1], 0x0d, `${relativePath} contains a bare LF at byte ${index}`);
+    if (bytes[index] === 0x0d) assert.equal(bytes[index + 1], 0x0a, `${relativePath} contains a bare CR at byte ${index}`);
+  }
+}
+
+test('步骤2批处理统一使用 CRLF，避免 cmd 将后半段当成命令', () => {
+  assertCrLfBatch('步骤2-一键部署.bat');
+});
+
 test('步骤1脚本写明 GitHub 仓库地址并复用为下载源', () => {
   const wrapperBytes = readFileSync(path.join(localScriptDir, '步骤1-一键安装脚本.bat'));
   const wrapperLatin1 = wrapperBytes.toString('binary');
@@ -29,8 +41,24 @@ test('步骤2一键部署默认刷新源码缓存，避免部署旧版本', () =
 
   assert.match(deployer, /deploy-one-click\.ps1/);
   assert.match(deployer, /-Interactive -RefreshSource/);
-  assert.match(deployer, /normalize_utf8_bom ".\\deploy-one-click\.ps1"/);
+  assert.match(deployer, /normalize_utf8_bom "%PS1_FILE%"/);
   assert.match(deployer, /UTF8Encoding\]::new\(\$true\)/);
+});
+
+test('步骤2缺少辅助文件时会自动补下载并创建配置', () => {
+  const deployer = readUtf8('步骤2-一键部署.bat');
+
+  assert.match(deployer, /REMOTE_BASE=https:\/\/raw\.githubusercontent\.com/);
+  assert.match(deployer, /call :fetch "%PS1_FILE%" "%PS1_URL%"/);
+  assert.match(deployer, /call :fetch "%EXAMPLE_FILE%" "%EXAMPLE_URL%"/);
+  assert.match(deployer, /copy \/Y "%EXAMPLE_FILE%" "%CONFIG_FILE%"/);
+});
+
+test('步骤2下载辅助文件时会重试瞬时网络错误', () => {
+  const deployer = readUtf8('步骤2-一键部署.bat');
+
+  assert.match(deployer, /\$attempt -lt 3/);
+  assert.match(deployer, /Start-Sleep -Seconds/);
 });
 
 test('步骤1会刷新部署脚本，源码下载优先使用 codeload', () => {
