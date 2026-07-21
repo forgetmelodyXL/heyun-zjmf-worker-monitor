@@ -285,7 +285,7 @@ function Invoke-WranglerDeploy([string]$WorkerRoot, [string]$WorkerName) {
         if ($exitCode -eq 0) { return }
         if ($exitCode -eq -1073740791) {
             Write-Note "Wrangler 在 Windows 上返回崩溃码，正在二次确认部署状态。"
-            $status = Invoke-CommandLine (Get-WranglerCommand @("deployments", "status", "--name", $WorkerName)) $WorkerRoot
+            $status = Invoke-CommandLineWithRetry (Get-WranglerCommand @("deployments", "status", "--name", $WorkerName)) $WorkerRoot $null 5
             if ($status -match "Version\(s\):|Created:") {
                 Write-Note "已确认 Cloudflare 端存在最新部署，继续后续步骤。"
                 return

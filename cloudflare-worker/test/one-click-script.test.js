@@ -98,6 +98,12 @@ test('D1 迁移遇到瞬时 fetch failed 时自动重试', () => {
   assert.match(script, /Invoke-CommandLineWithRetry \(Get-WranglerCommand @\("d1", "migrations", "apply"/);
 });
 
+test('Windows 部署崩溃后的状态确认会重试网络错误', () => {
+  const script = readUtf8('deploy-one-click.ps1');
+
+  assert.match(script, /\$status = Invoke-CommandLineWithRetry \(Get-WranglerCommand @\("deployments", "status", "--name", \$WorkerName\)\) \$WorkerRoot \$null 5/);
+});
+
 test('一键部署会引导填写网页更新令牌并写入 Worker Secret', () => {
   const script = readUtf8('deploy-one-click.ps1');
   const usage = readUtf8('使用说明.txt');
