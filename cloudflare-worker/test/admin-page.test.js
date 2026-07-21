@@ -209,3 +209,17 @@ test('管理后台页面使用 ZJMF_ADMIN_TOKEN 登录且不嵌入真实密码',
   assert.match(html, /function syncNotifyFields/);
   assert.doesNotMatch(html, /showUrl=type==='pushplus'/);
 });
+
+test('监控项弹窗可以快速新增 IDC 并自动选中', () => {
+  const html = renderAdminPage();
+
+  assert.match(html, /所属 IDC[\s\S]{0,240}id="quickAddProviderBtn"/);
+  assert.match(html, /id="quickProviderModal"/);
+  assert.match(html, /id="quickProviderForm"/);
+  assert.match(html, /保存并选中/);
+  assert.match(html, /#quickProviderModal\{z-index:30;align-items:start;overflow:auto\}/);
+  assert.match(html, /#quickProviderModal \.setup-modal\{width:min\(720px,calc\(100vw - 48px\)\);max-height:calc\(100vh - 48px\);overflow-y:auto\}/);
+  assert.match(html, /async function saveQuickProvider/);
+  assert.match(html, /renderProviderOptions\(payload\.name\)/);
+  assert.match(html, /\$\('serverProviderSelect'\)\.value=payload\.name/);
+});

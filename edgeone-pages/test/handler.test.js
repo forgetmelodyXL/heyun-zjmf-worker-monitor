@@ -155,6 +155,24 @@ test('管理初始化弹窗支持滚动显示完整内容', async () => {
   assert.doesNotMatch(html, /三步检测/);
 });
 
+test('EdgeOne 监控项弹窗可以快速新增 IDC 并自动选中', async () => {
+  const res = await handleEdgeOneRequest(new Request('https://edgeone.example/admin'), {
+    ADMIN_TOKEN: 'admin',
+    ZJMF_KV: new MemoryKV(),
+  });
+  const html = await res.text();
+
+  assert.match(html, /所属 IDC[\s\S]{0,240}id="quickAddProviderBtn"/);
+  assert.match(html, /id="quickProviderModal"/);
+  assert.match(html, /id="quickProviderForm"/);
+  assert.match(html, /保存并选中/);
+  assert.match(html, /#quickProviderModal\{z-index:30;align-items:start;overflow:auto\}/);
+  assert.match(html, /#quickProviderModal \.setup-modal\{width:min\(720px,calc\(100vw - 48px\)\);max-height:calc\(100vh - 48px\);overflow-y:auto\}/);
+  assert.match(html, /async function saveQuickProvider/);
+  assert.match(html, /renderProviderOptions\(payload\.name\)/);
+  assert.match(html, /\$\('serverProviderSelect'\)\.value=payload\.name/);
+});
+
 test('EdgeOne 初始化默认使用 HTTP(S) + API', async () => {
   const kv = new MemoryKV();
   const env = { ADMIN_TOKEN: 'admin', ZJMF_KV: kv };
