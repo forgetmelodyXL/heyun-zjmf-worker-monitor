@@ -240,6 +240,25 @@ function Invoke-CommandLine([string[]]$Command, [string]$WorkingDirectory = $Roo
         Pop-Location
     }
 }
+function Invoke-CommandLineWithRetry(
+    [string[]]$Command,
+    [string]$WorkingDirectory = $Root,
+    [string]$InputText = $null,
+    [int]$MaxAttempts = 3
+) {
+    $transientPattern = '(?i)fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|UND_ERR_|socket hang up'
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            return (Invoke-CommandLine $Command $WorkingDirectory $InputText)
+        } catch {
+            $message = $_.Exception.Message
+            if ($message -notmatch $transientPattern -or $attempt -ge $MaxAttempts) { throw }
+            $delay = $attempt * 2
+            Write-Host "Cloudflare 网络请求暂时失败，第 $attempt/$MaxAttempts 次，$delay 秒后重试。" -ForegroundColor Yellow
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
 function Invoke-CommandLineVisible([string[]]$Command, [string]$WorkingDirectory = $Root) {
     Push-Location $WorkingDirectory
     try {
@@ -572,7 +591,7 @@ Invoke-CommandLine @("node", (Join-Path $workerRoot "scripts\prepare-cloudflare.
 if ($PrepareOnly) { Write-Host "已完成预生成，未正式部署。" -ForegroundColor Green; exit 0 }
 
 Write-Step "执行 D1 迁移"
-Invoke-CommandLine (Get-WranglerCommand @("d1", "migrations", "apply", $databaseName, "--remote")) $workerRoot | Out-Null
+Invoke-CommandLineWithRetry (Get-WranglerCommand @("d1", "migrations", "apply", $databaseName, "--remote")) $workerRoot | Out-Null
 
 Write-Step "写入管理后台密钥"
 Invoke-CommandLine (Get-WranglerCommand @("secret", "put", "ADMIN_TOKEN")) $workerRoot $adminToken | Out-Null
